@@ -1,6 +1,6 @@
 # Cloud-Native .NET 10 on Kubernetes — Opinionated Best Practices
 
-*Audience: staff/senior engineers shipping .NET 10 services to AKS (or any CNCF-conformant cluster). Companion to [`../aks-shared-infra.md`](../aks-shared-infra.md). Assumes Aspire 13 GA (Nov 2025) and .NET 10 GA (Nov 2025).*
+*Audience: staff/senior engineers shipping .NET 10 services to AKS (or any CNCF-conformant cluster). Companion to [`aks-shared-infra.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/aks-shared-infra.md). Assumes Aspire 13 GA (Nov 2025) and .NET 10 GA (Nov 2025).*
 
 > **One-line position.** Use **Aspire for the inner loop + ServiceDefaults**, the **.NET SDK container build** for images, **OpenTelemetry + standard resilience pipelines** everywhere, and **Workload Identity + CSI Key Vault** for secrets. Everything else is either the cluster's job or the platform team's job — not your service's.
 
@@ -230,7 +230,7 @@ builder.Services.AddHttpClient<CatalogClient>()
 
 ## 7. Service-to-service
 
-**Auth:** see [`../aks-shared-infra.md`](../aks-shared-infra.md) for the tenant-allow-list + `azp` client-app pattern. The short version: validate JWTs in the service with the shared `EntraAuth.Auth` library; do **not** use a mesh for authZ.
+**Auth:** see [`aks-shared-infra.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/aks-shared-infra.md) for the tenant-allow-list + `azp` client-app pattern. The short version: validate JWTs in the service with the shared `EntraAuth.Auth` library; do **not** use a mesh for authZ.
 
 **Transport:**
 
@@ -387,7 +387,7 @@ public sealed class OutboxRelay(IBus bus, ILogger<OutboxRelay> log) : Background
 
 ## 14. Multi-tenancy at runtime
 
-See `../aks-shared-infra.md` for the tenant allow-list + `IssuerValidator` pattern enforced at token validation. Below is *runtime-layer* guidance:
+See `https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/aks-shared-infra.md` for the tenant allow-list + `IssuerValidator` pattern enforced at token validation. Below is *runtime-layer* guidance:
 
 **Isolation strategies** (pick per data-class, not per product):
 
@@ -439,7 +439,7 @@ Resilience           → AddStandardResilienceHandler on every HttpClient
 Data Protection      → Blob + Key Vault, shared ApplicationName
 Shutdown             → HostOptions.ShutdownTimeout < terminationGracePeriodSeconds
 CI/CD                → OIDC + SBOM + cosign + promote-by-digest
-Auth                 → EntraAuth.Auth (see ../aks-shared-infra.md), not a mesh
+Auth                 → EntraAuth.Auth (see https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/aks-shared-infra.md), not a mesh
 ```
 
 If your service diverges from this without a written reason in the repo, it's technical debt.

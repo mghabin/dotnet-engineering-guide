@@ -1,6 +1,6 @@
 # ASP.NET Core 10 — Server-Side Best Practices
 
-Opinionated defaults for APIs and background services on **.NET 10 (LTS, Nov 2025)**. Terse on purpose. If something isn't here, assume the framework default is fine. Companion docs: [`../validation.md`](../validation.md), [`../best-practices.md`](../best-practices.md).
+Opinionated defaults for APIs and background services on **.NET 10 (LTS, Nov 2025)**. Terse on purpose. If something isn't here, assume the framework default is fine. Companion docs: [`validation.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/validation.md), [`best-practices.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/best-practices.md).
 
 ---
 
@@ -281,7 +281,7 @@ Don't:
 
 ## 10. Authn/Authz
 
-JWT Bearer + policy-based authorization. See [`../validation.md`](../validation.md) for Entra-specific token validation (issuer/audience/scp/roles) and [`../best-practices.md`](../best-practices.md) for credential hygiene.
+JWT Bearer + policy-based authorization. See [`validation.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/validation.md) for Entra-specific token validation (issuer/audience/scp/roles) and [`best-practices.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/best-practices.md) for credential hygiene.
 
 ```csharp
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -423,7 +423,7 @@ Data Protection:
 - In Kubernetes or scaled-out: **persist keys** (`PersistKeysToAzureBlobStorage` or a mounted PVC) and **protect them** (`ProtectKeysWithAzureKeyVault` / Azure Managed HSM). Default in-memory keys = every pod rotates its own = cookies/auth tickets break on restart.
 
 Secrets:
-- No secrets in repos, images, env vars (prod), or pipeline variables. Key Vault + Managed Identity / Workload Identity. See [`../best-practices.md`](../best-practices.md).
+- No secrets in repos, images, env vars (prod), or pipeline variables. Key Vault + Managed Identity / Workload Identity. See [`best-practices.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/best-practices.md).
 
 ---
 
