@@ -90,7 +90,7 @@ One page. Pull this up during code review. Pairs are ✅ do / ❌ don't. If a ru
 
 ## 9. AuthN / AuthZ
 
-See [`docs/best-practices.md`](../best-practices.md) and [`docs/validation.md`](../validation.md) for the why; this is the what.
+See [`best-practices.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/best-practices.md) and [`validation.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/validation.md) for the why; this is the what.
 
 - ✅ `[Authorize]` (or `.RequireAuthorization()`) explicit on every protected endpoint; fallback policy denies by default.
 - ✅ Delegated calls: check **`scp`** (space-separated scopes) against required scope.
@@ -181,10 +181,10 @@ See [`docs/best-practices.md`](../best-practices.md) and [`docs/validation.md`](
 ---
 
 If you're not sure why a rule is here, see the linked deep doc in `docs/dotnet/`:
-[foundations](./foundations.md) ·
-[aspnetcore](./aspnetcore.md) ·
-[data](./data.md) ·
-[testing](./testing.md) ·
-[performance](./performance.md) ·
-[cloud-native](./cloud-native.md) ·
-[client](./client.md)
+[foundations](./docs/01-foundations.md) ·
+[aspnetcore](./docs/02-aspnetcore.md) ·
+[data](./docs/03-data.md) ·
+[testing](./docs/04-testing.md) ·
+[performance](./docs/05-performance.md) ·
+[cloud-native](./docs/06-cloud-native.md) ·
+[client](./docs/07-client.md)
