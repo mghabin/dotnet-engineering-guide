@@ -90,7 +90,7 @@ See: [`docs/01-foundations.md`](./docs/01-foundations.md), decision tree [11 —
 - Read `IConfiguration` directly inside business logic.
 - "Optional" config that silently no-ops in prod.
 
-See: [`docs/01-foundations.md`](./docs/01-foundations.md), [`docs/06-cloud-native.md#4-configuration--configmap--csi-key-vault-not-appsettingsproductionjson`](./docs/06-cloud-native.md#4-configuration-configmap-csi-key-vault-not-appsettingsproductionjson).
+See: [`docs/01-foundations.md`](./docs/01-foundations.md), [`docs/06-cloud-native.md#4-configuration--configmap--csi-key-vault-not-appsettingsproductionjson`](./docs/06-cloud-native.md#4-configuration--configmap--csi-key-vault-not-appsettingsproductionjson).
 
 ## 6. Logging
 
@@ -107,7 +107,7 @@ See: [`docs/01-foundations.md`](./docs/01-foundations.md), [`docs/06-cloud-nativ
 - Access tokens, refresh tokens, client secrets, cookies — even truncated — in logs.
 - `catch { _log.LogError(ex, "boom"); throw; }` — log **or** throw, not both at every layer.
 
-See: [`docs/01-foundations.md`](./docs/01-foundations.md) (primitives) and [`docs/06-cloud-native.md#5-observability--opentelemetry-one-sdk-three-signals`](./docs/06-cloud-native.md#5-observability-opentelemetry-one-sdk-three-signals) (OTLP exporter wiring).
+See: [`docs/01-foundations.md`](./docs/01-foundations.md) (primitives) and [`docs/06-cloud-native.md#5-observability--opentelemetry-one-sdk-three-signals`](./docs/06-cloud-native.md#5-observability--opentelemetry-one-sdk-three-signals) (OTLP exporter wiring).
 
 ## 7. HTTP (outbound) & resilience
 
@@ -165,7 +165,7 @@ See: [`docs/02-aspnetcore.md`](./docs/02-aspnetcore.md) §§3, 4, 5, 8.
 - Accept tokens with `ver=1.0` when you expect `2.0` (or vice versa) without explicit handling.
 - Disable `ValidateIssuer`, `ValidateAudience`, or `ValidateLifetime`. Ever.
 
-See: [`docs/02-aspnetcore.md#10-authnauthz`](./docs/02-aspnetcore.md#10-authnauthz) (owner) and decision tree [12 — auth policy shape](./docs/decision-trees.md#12-auth-policy-shape-delegated-scp-vs-app-only-roles-azp). See also (non-normative, runnable sample): [`mghabin/entra-auth-patterns-dotnet`](https://github.com/mghabin/entra-auth-patterns-dotnet).
+See: [`docs/02-aspnetcore.md#10-authnauthz`](./docs/02-aspnetcore.md#10-authnauthz) (owner) and decision tree [12 — auth policy shape](./docs/decision-trees.md#12-auth-policy-shape-delegated-scp-vs-app-only-roles--azp). See also (non-normative, runnable sample): [`mghabin/entra-auth-patterns-dotnet`](https://github.com/mghabin/entra-auth-patterns-dotnet).
 
 ## 10. Caching
 
@@ -203,14 +203,14 @@ See: [`docs/02-aspnetcore.md#9-output-caching`](./docs/02-aspnetcore.md#9-output
 - Lazy loading enabled in web request paths.
 - Distributed (two-phase / MSDTC) transactions across DB + bus / DB + HTTP / two databases — there is no DTC on Linux .NET, and most managed services don't enlist.
 
-See: [`docs/03-data.md#6-transactions--unit-of-work`](./docs/03-data.md#6-transactions-unit-of-work) (outbox is the single owner here), and decision tree [17 — Cosmos partition key](./docs/decision-trees.md#17-cosmos-db-partition-key) for the modelling rule.
+See: [`docs/03-data.md#6-transactions--unit-of-work`](./docs/03-data.md#6-transactions--unit-of-work) (outbox is the single owner here), and decision tree [17 — Cosmos partition key](./docs/decision-trees.md#17-cosmos-db-partition-key) for the modelling rule.
 
 ## 12. Background work
 
 **Do:**
 
 - `BackgroundService` / `IHostedService`; honor the `stoppingToken` in every loop ([learn.microsoft.com/dotnet/core/extensions/workers](https://learn.microsoft.com/dotnet/core/extensions/workers)).
-- Graceful shutdown: drain in-flight work within `HostOptions.ShutdownTimeout`; the cluster-side drain contract is owned by [`docs/06-cloud-native.md#11-graceful-shutdown--drain-dont-drop`](./docs/06-cloud-native.md#11-graceful-shutdown-drain-dont-drop).
+- Graceful shutdown: drain in-flight work within `HostOptions.ShutdownTimeout`; the cluster-side drain contract is owned by [`docs/06-cloud-native.md#11-graceful-shutdown--drain-dont-drop`](./docs/06-cloud-native.md#11-graceful-shutdown--drain-dont-drop).
 - Idempotency keys on every externally-visible side effect; safe to replay (same `(key, tenant)` UNIQUE store the outbox/inbox uses — see §11).
 - Bound concurrency with `Channel<T>`, `Parallel.ForEachAsync`, or a semaphore — not unbounded `Task.Run`.
 
@@ -278,7 +278,7 @@ See: [`docs/05-performance.md`](./docs/05-performance.md), decision trees [9 —
 - Client secrets in pipelines when FIC works.
 - Default in-memory Data Protection keys behind a load balancer.
 
-See: [`docs/06-cloud-native.md#10-health-checks--three-endpoints-for-k8s-not-what-servicedefaults-gives-you`](./docs/06-cloud-native.md#10-health-checks-three-endpoints-for-k8s-not-what-servicedefaults-gives-you) (probe contract owner; ch02 §18 only owns the `MapHealthChecks` plumbing), [`docs/06-cloud-native.md#1-net-aspire--what-it-is-what-it-isnt`](./docs/06-cloud-native.md#1-net-aspire-what-it-is-what-it-isnt), decision tree [16 — Aspire scope](./docs/decision-trees.md#16-aspire-scope-apphost-resource-vs-in-service-client-integration).
+See: [`docs/06-cloud-native.md#10-health-checks--three-endpoints-for-k8s-not-what-servicedefaults-gives-you`](./docs/06-cloud-native.md#10-health-checks--three-endpoints-for-k8s-not-what-servicedefaults-gives-you) (probe contract owner; ch02 §18 only owns the `MapHealthChecks` plumbing), [`docs/06-cloud-native.md#1-net-aspire--what-it-is-what-it-isnt`](./docs/06-cloud-native.md#1-net-aspire--what-it-is-what-it-isnt), decision tree [16 — Aspire scope](./docs/decision-trees.md#16-aspire-scope-apphost-resource-vs-in-service-client-integration).
 
 ## 16. Security
 
@@ -296,7 +296,7 @@ See: [`docs/06-cloud-native.md#10-health-checks--three-endpoints-for-k8s-not-wha
 - Write tokens or keys to local disk; use `DataProtection`, Key Vault, or memory only.
 - Disable certificate validation ("just for staging").
 
-See: [`docs/02-aspnetcore.md#14-security`](./docs/02-aspnetcore.md#14-security), [`docs/06-cloud-native.md#8-secrets--identity--workload-identity-only`](./docs/06-cloud-native.md#8-secrets-identity-workload-identity-only).
+See: [`docs/02-aspnetcore.md#14-security`](./docs/02-aspnetcore.md#14-security), [`docs/06-cloud-native.md#8-secrets--identity--workload-identity-only`](./docs/06-cloud-native.md#8-secrets--identity--workload-identity-only).
 
 ## 17. Dependencies
 

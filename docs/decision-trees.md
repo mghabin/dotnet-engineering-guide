@@ -139,7 +139,7 @@ flowchart TD
     D -->|Mixed, want first paint fast<br/>then offload| H[Interactive Auto<br/>only if both modes supported — ch07]
 ```
 
-References: [`docs/07-client.md#part-1--blazor-unified-web-app-model`](./07-client.md#part-1-blazor-unified-web-app-model).
+References: [`docs/07-client.md#part-1--blazor-unified-web-app-model`](./07-client.md#part-1--blazor-unified-web-app-model).
 
 ---
 
@@ -167,7 +167,7 @@ flowchart TD
     D -->|One platform dominates,<br/>platform-only APIs| I[Native SDK — ch07]
 ```
 
-References: [`docs/07-client.md#part-2--maui-net-10`](./07-client.md#part-2-maui-net-10).
+References: [`docs/07-client.md#part-2--maui-net-10`](./07-client.md#part-2--maui-net-10).
 
 ---
 
@@ -244,7 +244,7 @@ flowchart TD
     F -->|No| C
 ```
 
-References: [`docs/05-performance.md#8-jit--aot`](./05-performance.md#8-jit-aot).
+References: [`docs/05-performance.md#8-jit--aot`](./05-performance.md#8-jit--aot).
 
 ---
 
@@ -290,7 +290,7 @@ flowchart TD
     D -->|No, multiple endpoints / policies| C
 ```
 
-References: [`docs/01-foundations.md#5-di--lifetimes`](./01-foundations.md#5-di-lifetimes), [`docs/02-aspnetcore.md#11-httpclient`](./02-aspnetcore.md#11-httpclient).
+References: [`docs/01-foundations.md#5-di--lifetimes`](./01-foundations.md#5-di--lifetimes), [`docs/02-aspnetcore.md#11-httpclient`](./02-aspnetcore.md#11-httpclient).
 
 ---
 
@@ -370,7 +370,7 @@ flowchart TD
     F -->|Yes| G[BestEffort — never in prod — ch06]
 ```
 
-References: [`docs/06-cloud-native.md#3-kubernetes--aks--probes-limits-gc-shutdown`](./06-cloud-native.md#3-kubernetes-aks-probes-limits-gc-shutdown).
+References: [`docs/06-cloud-native.md#3-kubernetes--aks--probes-limits-gc-shutdown`](./06-cloud-native.md#3-kubernetes--aks--probes-limits-gc-shutdown).
 
 ---
 
@@ -428,7 +428,7 @@ flowchart TD
     F -->|No| H[Configure connection from<br/>cluster config / Key Vault — ch06 §4]
 ```
 
-References: [`docs/06-cloud-native.md#1-net-aspire--what-it-is-what-it-isnt`](./06-cloud-native.md#1-net-aspire-what-it-is-what-it-isnt).
+References: [`docs/06-cloud-native.md#1-net-aspire--what-it-is-what-it-isnt`](./06-cloud-native.md#1-net-aspire--what-it-is-what-it-isnt).
 
 ---
 

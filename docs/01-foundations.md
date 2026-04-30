@@ -3,7 +3,7 @@
 Opinionated, cross-cutting defaults for a .NET 10 codebase.
 Everything here is do-this-by-default; deviations should be justified in code review.
 ASP.NET Core surface lives in [chapter 02](./02-aspnetcore.md), data in [chapter 03](./03-data.md), testing in [chapter 04](./04-testing.md), perf in [chapter 05](./05-performance.md), cloud-native in [chapter 06](./06-cloud-native.md), client in [chapter 07](./07-client.md).
-Ownership of each concept (and what defers where) is recorded in [`coverage-map.md`](../coverage-map.md#chapter-01-foundations).
+Ownership of each concept (and what defers where) is recorded in [`coverage-map.md`](../coverage-map.md#chapter-01--foundations).
 
 > Conventions: **Do** = required default. **Don't** = reject in review unless a
 > written exception exists. **Prefer** = strong default; use the alternative
@@ -464,7 +464,7 @@ never re-resolves).
 Add resilience via `Microsoft.Extensions.Http.Resilience` (Polly v8 under the
 hood): `.AddStandardResilienceHandler()` gets you retry+circuit-breaker+timeout
 defaults that are sensible.
-The cluster-level resilience story (Aspire `ServiceDefaults` wiring of the same handler across every outbound `HttpClient`) is owned by [chapter 06 §6 Resilience](./06-cloud-native.md#6-resilience-see-ch02-7); this section owns the per-client defaults, that section owns the platform default.
+The cluster-level resilience story (Aspire `ServiceDefaults` wiring of the same handler across every outbound `HttpClient`) is owned by [chapter 06 §6 Resilience](./06-cloud-native.md#6-resilience--polly-v8-standard-pipelines-not-hand-rolled-retries); this section owns the per-client defaults, that section owns the platform default.
 
 **Sources:**
 
@@ -514,7 +514,7 @@ environment variables → command-line. Don't fight the precedence; document it.
   process and shell history. Use `dotnet user-secrets` for local dev.
 - In every other environment, use Key Vault (or your cloud equivalent) and
   reference via the configuration provider; the provider handles rotation.
-  Cluster-side secrets topology (Workload Identity, CSI Key Vault driver, ConfigMap layering) is owned by [chapter 06 §4 Configuration](./06-cloud-native.md#4-configuration-configmap-csi-key-vault-not-appsettingsproductionjson) and [chapter 06 §8 Secrets & identity](./06-cloud-native.md#8-secrets-identity-workload-identity-only); this section owns only the in-process binding/validation rules.
+  Cluster-side secrets topology (Workload Identity, CSI Key Vault driver, ConfigMap layering) is owned by [chapter 06 §4 Configuration](./06-cloud-native.md#4-configuration--configmap--csi-key-vault-not-appsettingsproductionjson) and [chapter 06 §8 Secrets & identity](./06-cloud-native.md#8-secrets--identity--workload-identity-only); this section owns only the in-process binding/validation rules.
 - `ILogger` redaction: ensure secrets are never tokens in structured log
   templates; wrap in a custom type that overrides `ToString()`.
 
@@ -573,7 +573,7 @@ exceptional — return them as values (model-state errors, `ProblemDetails`,
 `Result<T>`). Authorization failures, missing-but-expected resources,
 optimistic concurrency, downstream timeouts — all *expected* on a healthy
 system; design them as flow, not throws.
-The HTTP error envelope (`ProblemDetails` per RFC 9457, `AddProblemDetails`, exception-handler middleware) is owned by [chapter 02 §3 ProblemDetails & Error Handling](./02-aspnetcore.md#3-problemdetails-error-handling); this section owns only the in-process exception discipline.
+The HTTP error envelope (`ProblemDetails` per RFC 9457, `AddProblemDetails`, exception-handler middleware) is owned by [chapter 02 §3 ProblemDetails & Error Handling](./02-aspnetcore.md#3-problemdetails--error-handling); this section owns only the in-process exception discipline.
 
 **Don't catch `Exception`.** Two exceptions: (1) a top-level boundary that
 logs and converts to a transport error (ASP.NET exception handler middleware,
@@ -698,7 +698,7 @@ default; fall back to reflection only when shape isn't statically knowable.
 - **Minimal API `RequestDelegate` generator** (on by default in ASP.NET Core
   7+). Removes per-request reflection; you get it for free as long as your
   endpoint signatures are static. Don't dynamically build endpoints if you
-  can express them statically — see [chapter 02 §1 Minimal APIs vs Controllers](./02-aspnetcore.md#1-minimal-apis-vs-controllers) for the endpoint-shape rules and [chapter 05 §6 Reflection alternatives](./05-performance.md#6-reflection-alternatives-source-generators-win) for the perf rationale that puts generators ahead of reflection by default.
+  can express them statically — see [chapter 02 §1 Minimal APIs vs Controllers](./02-aspnetcore.md#1-minimal-apis-vs-controllers) for the endpoint-shape rules and [chapter 05 §6 Reflection alternatives](./05-performance.md#6-reflection-alternatives--source-generators-win) for the perf rationale that puts generators ahead of reflection by default.
 
 `StringSyntaxAttribute` is *not* a source generator — it's a metadata attribute
 consumed by analyzers/IDEs; see §3.
@@ -798,7 +798,7 @@ The runner choice, opt-in, and CI integration rules are owned by [chapter 04 §2
 The defaults are good. Change them only with measurement, and pin the
 overrides in source so they ride with the binary instead of living in a
 deployment script.
-NativeAOT specifics, `DOTNET_*` Dockerfile env-vars, and `GCHeapCount` tuning are owned by [chapter 05 §8 JIT & AOT](./05-performance.md#8-jit-aot), [chapter 05 §9 GC](./05-performance.md#9-gc), and [chapter 05 §11 Containers](./05-performance.md#11-containers-what-to-set); the container baseline that consumes them is owned by [chapter 06 §2 Containerization](./06-cloud-native.md#2-containerization-no-dockerfile-if-you-can-avoid-it) and [chapter 06 §3 Kubernetes / AKS](./06-cloud-native.md#3-kubernetes-aks-probes-limits-gc-shutdown).
+NativeAOT specifics, `DOTNET_*` Dockerfile env-vars, and `GCHeapCount` tuning are owned by [chapter 05 §8 JIT & AOT](./05-performance.md#8-jit--aot), [chapter 05 §9 GC](./05-performance.md#9-gc), and [chapter 05 §11 Containers](./05-performance.md#11-containers--what-to-set); the container baseline that consumes them is owned by [chapter 06 §2 Containerization](./06-cloud-native.md#2-containerization--no-dockerfile-if-you-can-avoid-it) and [chapter 06 §3 Kubernetes / AKS](./06-cloud-native.md#3-kubernetes--aks--probes-limits-gc-shutdown).
 This section owns only the in-process, in-csproj defaults.
 
 **Server GC for server workloads.** ASP.NET Core and most service hosts

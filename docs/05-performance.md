@@ -9,7 +9,7 @@ Dense, opinionated, sourced. Targets **.NET 10 (LTS, Nov 2025)**. Assumes ASP.NE
 - **Default benchmarking framework: BenchmarkDotNet.** No fallback. Everything else is BenchmarkDotNet with bugs — `Stopwatch` loops, custom harnesses, `xUnit` "perf tests" all skip warmup, JIT tier promotion, and statistical analysis. See §1 and §15.
 - **Default live-process profiler: `dotnet-trace`.** Cross-platform, sampled, ships in the SDK toolset, feeds PerfView and Speedscope. **Fallback: PerfView on Windows** when you need full ETW depth; **JetBrains dotTrace/dotMemory** when a GUI is non-negotiable for the audience. See §1.
 - **Default container GC mode: Server GC + concurrent + DATAS.** ASP.NET Core's host turns Server GC on; .NET 9+ makes DATAS the default Server-GC sub-mode. **Fallback: Workstation GC** — and the runtime forces it for you when the container sees `< 1` logical CPU, regardless of config. See §9 and §11.
-- **Default container base image: `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`.** Distroless, non-root, ~100 MB. **Fallback: `azurelinux`** when you need a Microsoft-supported distro with a shell for debugging. See §11 and [Chapter 06 §2 — Containerization](./06-cloud-native.md#2-containerization-no-dockerfile-if-you-can-avoid-it).
+- **Default container base image: `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`.** Distroless, non-root, ~100 MB. **Fallback: `azurelinux`** when you need a Microsoft-supported distro with a shell for debugging. See §11 and [Chapter 06 §2 — Containerization](./06-cloud-native.md#2-containerization--no-dockerfile-if-you-can-avoid-it).
 - **Runtime knobs that belong here, not scattered:** GC mode, DATAS, tiered compilation, dynamic PGO, ReadyToRun, NativeAOT, container env-vars (`DOTNET_*`). The *foundational* runtime-config surface — how to set them per-process via `runtimeconfig.json` / `<RuntimeHostConfigurationOption>` / env-vars — is owned by [Chapter 01 §12 — Runtime configuration](./01-foundations.md#12-runtime-configuration); this chapter decides *which values* to ship.
 
 ---
@@ -285,7 +285,7 @@ Reflection is allocation, slow startup, and AOT-hostile. Most reasons to use it 
 - Latency modes: https://learn.microsoft.com/dotnet/standard/garbage-collection/latency
 - GC configuration knobs (`Server`, `DynamicAdaptationMode`, `HeapHardLimit*`, `RetainVM`): https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector
 - Process-level runtime config wiring for these knobs → [Chapter 01 §12 — Runtime configuration](./01-foundations.md#12-runtime-configuration).
-- Pod-level memory requests/limits and QoS class that the GC reads → [Chapter 06 §3 — Kubernetes / AKS](./06-cloud-native.md#3-kubernetes-aks-probes-limits-gc-shutdown).
+- Pod-level memory requests/limits and QoS class that the GC reads → [Chapter 06 §3 — Kubernetes / AKS](./06-cloud-native.md#3-kubernetes--aks--probes-limits-gc-shutdown).
 
 ---
 
@@ -321,7 +321,7 @@ Reflection is allocation, slow startup, and AOT-hostile. Most reasons to use it 
 
 There is **no universal "perf-tuned" env-var set**. The runtime defaults are good. Each tunable below moves a specific axis (startup vs steady-state vs memory) and can regress the others. Decide per service, then bake into the image. (**Env-var prefix:** `DOTNET_` is the standardized prefix since .NET 6; the old `COMPlus_` names still work but new code should use `DOTNET_`.)
 
-**Default base image, decided here:** **`mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`** — distroless, non-root (UID 1654), ~100 MB, no shell, smaller CVE surface. **Fallback: `azurelinux`** when you need a Microsoft-supported distro that includes a shell for in-container debugging; **`alpine`** only when image size dominates and you've audited native interop for musl. The Dockerfile baseline that wires this image into a multi-stage SDK build belongs to [Chapter 06 §2 — Containerization](./06-cloud-native.md#2-containerization-no-dockerfile-if-you-can-avoid-it); this chapter only picks the runtime knobs that go into the `ENV` lines.
+**Default base image, decided here:** **`mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`** — distroless, non-root (UID 1654), ~100 MB, no shell, smaller CVE surface. **Fallback: `azurelinux`** when you need a Microsoft-supported distro that includes a shell for in-container debugging; **`alpine`** only when image size dominates and you've audited native interop for musl. The Dockerfile baseline that wires this image into a multi-stage SDK build belongs to [Chapter 06 §2 — Containerization](./06-cloud-native.md#2-containerization--no-dockerfile-if-you-can-avoid-it); this chapter only picks the runtime knobs that go into the `ENV` lines.
 
 **Minimal Dockerfile (no tuning, just sane base):**
 
@@ -376,8 +376,8 @@ ENV DOTNET_GCHeapHardLimitPercent=75
 - SDK container publish: https://learn.microsoft.com/dotnet/core/docker/publish-as-container
 - Adam Sitnik on container env-var benchmarking — https://adamsitnik.com/
 - How to *set* these env-vars per host (`runtimeconfig.json`, `<RuntimeHostConfigurationOption>`, `ENV` precedence) → [Chapter 01 §12 — Runtime configuration](./01-foundations.md#12-runtime-configuration).
-- Dockerfile / chiseled-image baseline that consumes these env-vars → [Chapter 06 §2 — Containerization](./06-cloud-native.md#2-containerization-no-dockerfile-if-you-can-avoid-it).
-- Pod sizing, QoS class, and the `cpu` requests/limits that the GC reads → [Chapter 06 §3 — Kubernetes / AKS](./06-cloud-native.md#3-kubernetes-aks-probes-limits-gc-shutdown).
+- Dockerfile / chiseled-image baseline that consumes these env-vars → [Chapter 06 §2 — Containerization](./06-cloud-native.md#2-containerization--no-dockerfile-if-you-can-avoid-it).
+- Pod sizing, QoS class, and the `cpu` requests/limits that the GC reads → [Chapter 06 §3 — Kubernetes / AKS](./06-cloud-native.md#3-kubernetes--aks--probes-limits-gc-shutdown).
 
 ---
 
@@ -408,7 +408,7 @@ ENV DOTNET_GCHeapHardLimitPercent=75
 **Sources:**
 - `LoggerMessage` source generator: https://learn.microsoft.com/dotnet/core/extensions/logger-message-generator
 - High-performance logging: https://learn.microsoft.com/dotnet/core/extensions/high-performance-logging
-- Logging primitives, `ILogger<T>`, and source-generated loggers as the language baseline → [Chapter 01 — foundations §10 Source generators](./01-foundations.md#10-source-generators) (chapter-level ownership in [`coverage-map.md`](../coverage-map.md#chapter-01-foundations)).
+- Logging primitives, `ILogger<T>`, and source-generated loggers as the language baseline → [Chapter 01 — foundations §10 Source generators](./01-foundations.md#10-source-generators) (chapter-level ownership in [`coverage-map.md`](../coverage-map.md#chapter-01--foundations)).
 
 ---
 
