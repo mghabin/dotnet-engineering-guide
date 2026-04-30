@@ -1,13 +1,20 @@
 # .NET 10 / C# 14 — Foundations
 
-Opinionated, cross-cutting defaults for a .NET 10 codebase. Everything here is
-do-this-by-default; deviations should be justified in code review. ASP.NET Core,
-EF Core, testing, perf, cloud-native, and client topics are covered in sibling
-documents.
+Opinionated, cross-cutting defaults for a .NET 10 codebase.
+Everything here is do-this-by-default; deviations should be justified in code review.
+ASP.NET Core surface lives in [chapter 02](./02-aspnetcore.md), data in [chapter 03](./03-data.md), testing in [chapter 04](./04-testing.md), perf in [chapter 05](./05-performance.md), cloud-native in [chapter 06](./06-cloud-native.md), client in [chapter 07](./07-client.md).
+Ownership of each concept (and what defers where) is recorded in [`coverage-map.md`](../coverage-map.md#chapter-01--foundations).
 
 > Conventions: **Do** = required default. **Don't** = reject in review unless a
 > written exception exists. **Prefer** = strong default; use the alternative
 > only with measurement or a documented constraint.
+
+> **Source distribution.**
+> This chapter biases per-section `Sources:` blocks toward primary-source material.
+> Microsoft Learn dominates because the topics (MSBuild, the C# compiler, the runtime, DI/options primitives, GC) are owned and specified by Microsoft, and Learn is the canonical spec surface.
+> Where a non-Microsoft authority exists — IETF RFCs (`ProblemDetails`), reproducible-builds.org, OWASP/NIST supply-chain guidance, ECMA-335 — it is cited alongside Learn.
+> Where a named .NET expert has the canonical treatment (Stephen Cleary on async, Andrew Lock on options/NRT, Steve Gordon on `IHttpClientFactory`, Eric Lippert on immutability), they are cited inline rather than relegated to a "further reading" pile.
+> Sections without a non-Microsoft entry are ones where Microsoft Learn is genuinely the only authoritative source (C# language details, runtime knobs, source-generator authoring); padding them with secondary blog posts would lower signal, not raise it.
 
 ---
 
@@ -87,6 +94,10 @@ libs; you will want it the first time prod stack-traces hit a NuGet'd package.
 - [Central Package Management](https://learn.microsoft.com/nuget/consume-packages/central-package-management) — `Directory.Packages.props`, transitive pinning.
 - [Source Link](https://learn.microsoft.com/dotnet/standard/library-guidance/sourcelink) — debug into NuGet packages from prod stacks.
 - [`ContinuousIntegrationBuild`](https://learn.microsoft.com/dotnet/core/project-sdk/msbuild-props#continuousintegrationbuild) — what the CI flag strips from PDBs.
+- [reproducible-builds.org — Definition](https://reproducible-builds.org/docs/definition/) — vendor-neutral definition the .NET reproducible-build flags target.
+- [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) — the contract `Directory.Packages.props` versions are expected to honor.
+
+> **See also**: monorepo layout and CI fan-out live in [`patterns/monorepo.md`](../patterns/monorepo.md), and the test-project conventions assumed by the `tests/` sibling layout are owned by [chapter 04 §1–§2](./04-testing.md#1-the-pyramid-and-why-most-teams-get-it-wrong).
 
 ---
 
@@ -238,6 +249,7 @@ method does.
 - [Records](https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/record) — value equality, `with`, when to choose record vs class.
 - [Pattern matching](https://learn.microsoft.com/dotnet/csharp/fundamentals/functional/pattern-matching) — switch expressions, property/list patterns.
 - [`ref readonly` parameters](https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/ref#ref-readonly-parameters) — when to use over `in`.
+- [ECMA-335 — Common Language Infrastructure](https://ecma-international.org/publications-and-standards/standards/ecma-335/) — the standardized runtime/IL spec the language targets (vendor-neutral baseline behind the C# spec).
 
 ---
 
@@ -289,6 +301,7 @@ amnesty.
 - [Nullable static-analysis attributes](https://learn.microsoft.com/dotnet/csharp/language-reference/attributes/nullable-analysis) — `NotNullWhen`, `MemberNotNull`, `DoesNotReturn`, etc.
 - [`ArgumentNullException.ThrowIfNull`](https://learn.microsoft.com/dotnet/api/system.argumentnullexception.throwifnull) — annotated guard; feeds flow analysis.
 - [`StringSyntaxAttribute`](https://learn.microsoft.com/dotnet/api/system.diagnostics.codeanalysis.stringsyntaxattribute) — string-literal hints for analyzers/IDEs.
+- [Andrew Lock — *Embracing nullable reference types*](https://andrewlock.net/series/embracing-nullable-reference-types/) — community-canonical migration playbook for incremental NRT adoption on existing codebases.
 
 ---
 
@@ -338,7 +351,8 @@ Rx/`IObservable<T>` unless you actually need temporal operators.
 takes `CancellationToken ct` as the *last* parameter and forwards it.
 Background services use `stoppingToken`; HTTP endpoints use
 `HttpContext.RequestAborted` (already wired into minimal API parameter
-binding). `Task.Delay` without `ct` is a bug.
+binding — see [chapter 02 §1 Minimal APIs vs Controllers](./02-aspnetcore.md#1-minimal-apis-vs-controllers)).
+`Task.Delay` without `ct` is a bug.
 
 **Parallel composition.**
 - `Task.WhenAll` — fan-out a known small set of independent awaitables.
@@ -375,6 +389,7 @@ singleton — the captured state is the lifetime of the singleton.
 - [`Parallel.ForEachAsync`](https://learn.microsoft.com/dotnet/api/system.threading.tasks.parallel.foreachasync) — bounded async iteration.
 - [Stephen Cleary — *Async and Await*](https://blog.stephencleary.com/2012/02/async-and-await.html) — canonical primer; `async void` exception flow.
 - [Stephen Cleary — *Don't Block on Async Code*](https://blog.stephencleary.com/2012/07/dont-block-on-async-code.html) — sync-over-async deadlock anatomy.
+- [David Fowler — *AspNetCoreDiagnosticScenarios — AsyncGuidance*](https://github.com/davidfowl/AspNetCoreDiagnosticScenarios/blob/main/AsyncGuidance.md) — community-maintained field guide to async + DI gotchas; cross-linked from `Further reading`.
 
 ---
 
@@ -390,7 +405,9 @@ turn it on explicitly so it can't regress.
 **Background work needs `IServiceScopeFactory`.** Inject the factory into your
 `BackgroundService`/`IHostedService`, then `await using var scope =
 _scopeFactory.CreateAsyncScope();` per unit of work. Resolving a scoped
-`DbContext` directly into a hosted service is the canonical bug.
+`DbContext` directly into a hosted service is the canonical bug — see [chapter 03 §3 DbContext lifetime](./03-data.md#3-dbcontext-lifetime) for the data-tier rule and [chapter 02 §12 Background Work](./02-aspnetcore.md#12-background-work) for the ASP.NET Core hosting surface.
+
+**Endpoint-level DI.** Constructor injection on minimal API delegates and on filters is owned by [chapter 02 §1 Minimal APIs vs Controllers](./02-aspnetcore.md#1-minimal-apis-vs-controllers); the lifetime rules above still bind there, this chapter does not re-decide them.
 
 **Keyed services (.NET 8+).** Use them when you have multiple
 implementations of the same abstraction selected by a stable key
@@ -411,27 +428,16 @@ If you find yourself injecting `IOptions<T>` into a class that already takes
 the typed value — just inject `T` (registered with
 `services.AddSingleton(sp => sp.GetRequiredService<IOptions<T>>().Value)`).
 
-**`HttpClient`: pick one of two valid defaults — never `new HttpClient()` ad
-hoc.** Both options solve socket exhaustion and DNS staleness; pick by whether
-you need DI/policies or not.
+**`HttpClient`: default to a typed client via `IHttpClientFactory`. Never `new HttpClient()` ad hoc.**
+For greenfield service code, `services.AddHttpClient<TClient>(...)` is the default — you get DI-resolved configuration, a testable seam, pooled handlers, OTel instrumentation, and a plug-in point for `Microsoft.Extensions.Http.Resilience` policies.
 
-- **`IHttpClientFactory` (default for app code).** Use when you want DI-resolved
-  configuration, named/typed clients, and policy plug-in points
-  (`Microsoft.Extensions.Http.Resilience`, delegating handlers, telemetry).
-  Two flavors:
-  - **Named clients**: `services.AddHttpClient("github", c => ...)`, resolved
-    via `IHttpClientFactory.CreateClient("github")`. Good for a small number
-    of ad-hoc calls.
-  - **Typed clients**: `services.AddHttpClient<IGitHubClient, GitHubClient>(...)`.
-    The class takes `HttpClient` in its constructor; lifetime is **transient**,
-    but the underlying handler is pooled. Default for new code — testable seam,
-    DI-resolved configuration.
-- **Long-lived static/singleton `HttpClient` with `SocketsHttpHandler.PooledConnectionLifetime`.**
-  Equally supported by Microsoft today. Appropriate for libraries or
-  ahead-of-time scenarios where you don't want to take a dependency on
-  `IHttpClientFactory`, and for hot paths where you measured the per-request
-  factory overhead and care. Set `PooledConnectionLifetime` so connections
-  recycle and DNS gets re-resolved:
+- **Default — typed clients**: `services.AddHttpClient<IGitHubClient, GitHubClient>(...)`.
+  The class takes `HttpClient` in its constructor; lifetime is **transient**, but the underlying handler is pooled.
+- **Variant — named clients**: `services.AddHttpClient("github", c => ...)`, resolved via `IHttpClientFactory.CreateClient("github")`.
+  Use only when you have a small number of ad-hoc calls and don't want a typed wrapper.
+- **Fallback — long-lived static `HttpClient` with `SocketsHttpHandler.PooledConnectionLifetime`.**
+  Pick this *only* when one of these holds: (a) you are writing a library that must not take a DI dependency, (b) you are an AOT/single-file entry point with no DI container, (c) you have a benchmark showing per-request `IHttpClientFactory` overhead matters on a hot path.
+  Set `PooledConnectionLifetime` so connections recycle and DNS gets re-resolved:
 
   ```csharp
   // illustrative
@@ -448,6 +454,7 @@ never re-resolves).
 Add resilience via `Microsoft.Extensions.Http.Resilience` (Polly v8 under the
 hood): `.AddStandardResilienceHandler()` gets you retry+circuit-breaker+timeout
 defaults that are sensible.
+The cluster-level resilience story (Aspire `ServiceDefaults` wiring of the same handler across every outbound `HttpClient`) is owned by [chapter 06 §6 Resilience](./06-cloud-native.md#6-resilience--polly-v8-standard-pipelines-not-hand-rolled-retries); this section owns the per-client defaults, that section owns the platform default.
 
 **Sources:**
 
@@ -458,6 +465,7 @@ defaults that are sensible.
 - [`HttpClient` guidelines for .NET](https://learn.microsoft.com/dotnet/fundamentals/networking/http/httpclient-guidelines) — when `IHttpClientFactory` vs long-lived static `HttpClient` + `PooledConnectionLifetime`.
 - [`IHttpClientFactory`](https://learn.microsoft.com/dotnet/core/extensions/httpclient-factory) — named/typed clients, handler pooling.
 - [`Microsoft.Extensions.Http.Resilience`](https://learn.microsoft.com/dotnet/core/resilience/http-resilience) — Polly v8 standard handlers.
+- [Steve Gordon — *HttpClientFactory in ASP.NET Core* (series)](https://www.stevejgordon.co.uk/introduction-to-httpclientfactory-aspnetcore) — community-canonical internals walkthrough: handler pooling, lifetimes, the `LogicalHandler`/`PrimaryHandler` chain.
 
 ---
 
@@ -495,6 +503,7 @@ environment variables → command-line. Don't fight the precedence; document it.
   process and shell history. Use `dotnet user-secrets` for local dev.
 - In every other environment, use Key Vault (or your cloud equivalent) and
   reference via the configuration provider; the provider handles rotation.
+  Cluster-side secrets topology (Workload Identity, CSI Key Vault driver, ConfigMap layering) is owned by [chapter 06 §4 Configuration](./06-cloud-native.md#4-configuration--configmap--csi-key-vault-not-appsettingsproductionjson) and [chapter 06 §8 Secrets & identity](./06-cloud-native.md#8-secrets--identity--workload-identity-only); this section owns only the in-process binding/validation rules.
 - `ILogger` redaction: ensure secrets are never tokens in structured log
   templates; wrap in a custom type that overrides `ToString()`.
 
@@ -508,6 +517,7 @@ smell that defeats validation, defeats reload, and defeats testability.
 - [Options validation](https://learn.microsoft.com/dotnet/core/extensions/options#options-validation) — `ValidateOnStart`, `IValidateOptions<T>`, `[OptionsValidator]`.
 - [Configuration providers & precedence](https://learn.microsoft.com/dotnet/core/extensions/configuration) — layering rules.
 - [Safe storage of secrets in development](https://learn.microsoft.com/aspnet/core/security/app-secrets) — `dotnet user-secrets`.
+- [Andrew Lock — *Adding validation to strongly-typed configuration objects*](https://andrewlock.net/adding-validation-to-strongly-typed-configuration-objects-in-asp-net-core/) — community-canonical walk-through of `IValidateOptions<T>`, `[OptionsValidator]`, and `ValidateOnStart` patterns.
 
 ---
 
@@ -550,6 +560,7 @@ exceptional — return them as values (model-state errors, `ProblemDetails`,
 `Result<T>`). Authorization failures, missing-but-expected resources,
 optimistic concurrency, downstream timeouts — all *expected* on a healthy
 system; design them as flow, not throws.
+The HTTP error envelope (`ProblemDetails` per RFC 9457, `AddProblemDetails`, exception-handler middleware) is owned by [chapter 02 §3 ProblemDetails & Error Handling](./02-aspnetcore.md#3-problemdetails--error-handling); this section owns only the in-process exception discipline.
 
 **Don't catch `Exception`.** Two exceptions: (1) a top-level boundary that
 logs and converts to a transport error (ASP.NET exception handler middleware,
@@ -587,7 +598,7 @@ catch it specifically, it shouldn't exist as its own type — a built-in
 
 - [Best practices for exceptions](https://learn.microsoft.com/dotnet/standard/exceptions/best-practices-for-exceptions) — design rules.
 - [`ExceptionDispatchInfo`](https://learn.microsoft.com/dotnet/api/system.runtime.exceptionservices.exceptiondispatchinfo) — preserving stacks across boundaries.
-- [`ProblemDetails` (RFC 7807)](https://datatracker.ietf.org/doc/html/rfc7807) — standard error envelope for HTTP APIs.
+- [`ProblemDetails` (RFC 9457)](https://datatracker.ietf.org/doc/html/rfc9457) — current standard error envelope for HTTP APIs; obsoletes RFC 7807.
 
 ---
 
@@ -642,6 +653,7 @@ This is the canonical C# 14 replacement for the `private string _name; public st
 - [`field` keyword](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-14#the-field-keyword) — validating accessors without a hand-rolled backing field.
 - [`System.Collections.Immutable`](https://learn.microsoft.com/dotnet/api/system.collections.immutable) — `ImmutableArray<T>`, `ImmutableList<T>`.
 - [Choosing between class and struct](https://learn.microsoft.com/dotnet/standard/design-guidelines/choosing-between-class-and-struct) — when value semantics fit.
+- [Eric Lippert — *Immutability in C#* (series)](https://learn.microsoft.com/archive/blogs/ericlippert/immutability-in-c-part-one-kinds-of-immutability) — taxonomy of write-once / shallow / deep / observational immutability; shapes the rule that `IReadOnlyList<T>` is a view, not a guarantee.
 
 ---
 
@@ -669,7 +681,7 @@ default; fall back to reflection only when shape isn't statically knowable.
 - **Minimal API `RequestDelegate` generator** (on by default in ASP.NET Core
   7+). Removes per-request reflection; you get it for free as long as your
   endpoint signatures are static. Don't dynamically build endpoints if you
-  can express them statically.
+  can express them statically — see [chapter 02 §1 Minimal APIs vs Controllers](./02-aspnetcore.md#1-minimal-apis-vs-controllers) for the endpoint-shape rules and [chapter 05 §6 Reflection alternatives](./05-performance.md#6-reflection-alternatives--source-generators-win) for the perf rationale that puts generators ahead of reflection by default.
 
 `StringSyntaxAttribute` is *not* a source generator — it's a metadata attribute
 consumed by analyzers/IDEs; see §3.
@@ -712,7 +724,7 @@ pre-commit hook. Fights happen once, in `.editorconfig`, never in review.
 - **`Meziantou.Analyzer`** — opinionated rules that catch real
   bugs (sync-over-async, `DateTime.Now` misuse, culture-sensitive string ops,
   task-related foot-guns). Treat as required.
-- **`AsyncFixer`** if your team still ships sync-over-async by accident.
+- **`AsyncFixer`** — required by default. Sync-over-async slips through review more often than not, and the analyzer catches the patterns `Meziantou.Analyzer` and the SDK rules don't. *Fallback*: drop it only if you have a documented case where its rules conflict with a code-generator you can't change.
 
 Wire them via `Directory.Packages.props` so versions are unified, and via
 `Directory.Build.props` so every project gets them automatically.
@@ -746,8 +758,7 @@ server (or NuGet.org's).
 **`dotnet test` and Microsoft.Testing.Platform.** The .NET 10 SDK ships
 first-class Microsoft.Testing.Platform (MTP) support in `dotnet test` alongside
 the legacy VSTest pipeline.
-The testing chapter covers when to opt in; just don't bake VSTest-only
-assumptions into CI templates you author today.
+The runner choice, opt-in, and CI integration rules are owned by [chapter 04 §2 Frameworks: xUnit v3, MSTest, NUnit](./04-testing.md#2-frameworks-xunit-v3-mstest-nunit); just don't bake VSTest-only assumptions into CI templates you author today.
 
 **Sources:**
 
@@ -757,6 +768,8 @@ assumptions into CI templates you author today.
 - [NuGet audit (`<NuGetAudit>`)](https://learn.microsoft.com/nuget/concepts/auditing-packages) — vulnerability scanning at restore.
 - [Reproducible builds (.NET)](https://github.com/dotnet/reproducible-builds) — repo and guidance.
 - [.NET 10 SDK — what's new](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-10/sdk) — `dotnet test` and Microsoft.Testing.Platform.
+- [OWASP — Software Component Verification Standard (SCVS)](https://owasp.org/www-project-software-component-verification-standard/) — vendor-neutral baseline that `NuGetAudit` + lock-file restore are meant to satisfy.
+- [NIST SP 800-218 — Secure Software Development Framework (SSDF)](https://csrc.nist.gov/publications/detail/sp/800-218/final) — primary-source reference for the supply-chain controls (PW.4, PS.3) the build pipeline implements.
 
 ---
 
@@ -765,6 +778,8 @@ assumptions into CI templates you author today.
 The defaults are good. Change them only with measurement, and pin the
 overrides in source so they ride with the binary instead of living in a
 deployment script.
+NativeAOT specifics, `DOTNET_*` Dockerfile env-vars, and `GCHeapCount` tuning are owned by [chapter 05 §8 JIT & AOT](./05-performance.md#8-jit--aot), [chapter 05 §9 GC](./05-performance.md#9-gc), and [chapter 05 §11 Containers](./05-performance.md#11-containers--what-to-set); the container baseline that consumes them is owned by [chapter 06 §2 Containerization](./06-cloud-native.md#2-containerization--no-dockerfile-if-you-can-avoid-it) and [chapter 06 §3 Kubernetes / AKS](./06-cloud-native.md#3-kubernetes--aks--probes-limits-gc-shutdown).
+This section owns only the in-process, in-csproj defaults.
 
 **Server GC for server workloads.** ASP.NET Core and most service hosts
 already opt into Server GC; verify on your project (it is the default for the
