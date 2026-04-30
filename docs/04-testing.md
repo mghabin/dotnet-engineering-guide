@@ -45,11 +45,23 @@ Sources:
 - **`Assert.Equivalent(expected, actual)`** — deep structural equality built-in. Kills a big reason to reach for FluentAssertions.
 - **`[Theory]` data via `TheoryData<>`** is strongly typed; prefer it over `object[][]`.
 - **Cancellation tokens** are available to tests via `TestContext.Current.CancellationToken`. Wire long-running tests to honor it.
-- **First-class `Microsoft.Testing.Platform` support.** `dotnet test` works; so does running the test `.exe` directly.
+- **First-class `Microsoft.Testing.Platform` support.** v3 test projects are produced as self-contained executables (project SDK is `Microsoft.NET.Sdk`, no separate runner package required); `dotnet test` works, and so does running the test `.exe` directly.
+- **Dynamically skippable tests.** `Assert.Skip(...)` skips at runtime; `[Fact(Explicit = true)]` excludes a test from default runs; `[Fact(SkipUnless = ...)]` / `SkipWhen` gate by predicate. No more `if (cond) return;` workarounds.
+- **Templates.** `dotnet new install xunit.v3.templates`, then `dotnet new xunit3`.
 
 ### Microsoft.Testing.Platform (MTP): strategic direction, opt-in today
 
-MTP is the modern runner host (not a test framework). By early 2025 every major framework — xUnit v3, MSTest, NUnit, TUnit — has an MTP adapter. **In .NET 10, `dotnet test` runs in two modes**: the legacy VSTest mode (still the default for projects that reference `Microsoft.NET.Test.Sdk`) and the new MTP mode. MTP is the strategic direction, but **it is opt-in today** — typically via `global.json` (`"sdk": { "testRunner": "Microsoft.Testing.Platform" }`) and per-project properties.
+MTP is the modern runner host (not a test framework). By early 2025 every major framework — xUnit v3, MSTest, NUnit, **TUnit** (which is built entirely on MTP) — has an MTP adapter. **In .NET 10, `dotnet test` runs in two modes**: the legacy VSTest mode (still the **default**) and the new dedicated MTP mode. MTP is the strategic direction, but **it is opt-in today** — enable it in `global.json`:
+
+```json
+{
+  "test": {
+    "runner": "Microsoft.Testing.Platform"
+  }
+}
+```
+
+Requires the MTP runner packages at **1.7+**. The property is `test.runner` — *not* `sdk.testRunner`. The older `<TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>` MSBuild property is the legacy opt-in that runs MTP-aware projects under VSTest mode; that bridge is being removed in MTP v2 on the .NET 10 SDK, so prefer the `global.json` switch for new work.
 
 Enable MTP **per framework** — the property names differ. Don't paste MSTest properties into an xUnit project.
 
@@ -93,7 +105,8 @@ xUnit captures only what you route through it. Two mechanisms:
 ### MSTest / NUnit
 
 - MSTest v3 has MTP integration (`<EnableMSTestRunner>true</EnableMSTestRunner>`), dynamic data sources, and is perfectly reasonable.
-- NUnit is fine, but `[SetUp]`/`[TearDown]` per-test ceremony tempts shared mutable state. xUnit's constructor-per-test model is better for isolation.
+- NUnit (4.x) is fine, but `[SetUp]`/`[TearDown]` per-test ceremony tempts shared mutable state. xUnit's constructor-per-test model is better for isolation. If you stay on NUnit, use the **constraint model** (`Assert.That(actual, Is.EqualTo(expected))`) — it composes with `&`, `|`, `Is.Not`, `Has`, `Does` and is the canonical NUnit 4 syntax (the classic `Assert.AreEqual` API was removed from the default surface).
+- **TUnit** is the newest entrant: built entirely on MTP, source-generated test discovery, parallel-by-default, Native AOT support. Microsoft Learn lists it alongside xUnit/NUnit/MSTest as a supported MTP-native framework. Adoption is still smaller; pick it when those properties (AOT, source-gen) actually matter, otherwise stick with xUnit v3.
 
 Sources:
 - xUnit.net — *What's New in v3* — https://xunit.net/docs/getting-started/v3/whats-new
@@ -164,14 +177,14 @@ Sources:
 **Prefer NSubstitute. Avoid Moq.**
 
 ### Moq — SponsorLink fallout
-In Aug 2023, Moq 4.20 shipped `SponsorLink`, a closed-source analyzer that read the developer's git email, hashed it (SHA-256, not salted), and phoned home. It was removed under pressure, but trust is gone. Many orgs banned Moq outright or pinned to 4.18.4.
+In Aug 2023, **Moq 4.20.0** shipped `SponsorLink`, a closed-source analyzer that read the developer's git email, hashed it (SHA-256, not salted), and phoned home. It was removed three days later in **4.20.2 (Aug 9, 2023)** under community pressure ("Remove SponsorLink since it breaks MacOS restore", PR #1375), and Moq has not re-added it through the latest **4.20.72 (Sep 2024)**. Trust is gone regardless. Many orgs banned Moq outright or pinned to 4.18.4.
 
 **Don't**
 - Don't take new dependencies on Moq in 2025+ code.
 - If you must use Moq, pin tightly and audit each bump.
 
 ### NSubstitute
-Cleaner syntax (no `.Object`), no lambda trees for setups, MIT licensed.
+Cleaner syntax (no `.Object`), no lambda trees for setups, BSD licensed. Stable on **5.x**, with **6.0 in pre-release** (Mar 2025) and first-class MTP support.
 
 ```csharp
 var clock = Substitute.For<TimeProvider>();
@@ -281,7 +294,7 @@ services.AddAuthentication(defaults =>
 | Cross-service contract / API shape | Pact / Verify against captured responses |
 | Live deployed environment | Smoke + critical journeys only (§1) |
 
-`Aspire.Hosting.Testing.DistributedApplicationTestingBuilder` boots your `AppHost` project in-process for tests, hands you `HttpClient`s and connection strings keyed by resource name (`app.CreateHttpClient("api")`), and tears the whole app down at the end. It's the right answer for "I want to test the whole Aspire app as a closed box."
+`Aspire.Hosting.Testing.DistributedApplicationTestingBuilder` boots your `AppHost` project in-process for tests, hands you `HttpClient`s and connection strings keyed by resource name (`app.CreateHttpClient("api")`), and tears the whole app down at the end. By default it **disables the dashboard** and **randomizes proxied resource ports**, so multiple test runs can execute concurrently on the same machine without port collisions. It's the right answer for "I want to test the whole Aspire app as a closed box." For single-project in-memory testing, Microsoft explicitly points back to `WebApplicationFactory<T>`.
 
 Sources:
 - learn.microsoft.com — *Integration tests in ASP.NET Core* — https://learn.microsoft.com/aspnet/core/test/integration-tests
@@ -385,7 +398,7 @@ Sources:
 
 ## 7. Snapshot / approval testing with Verify
 
-`Verify.Xunit` (or `Verify.MSTest`, `Verify.NUnit`) captures output to a `.verified.txt` file; each test run diffs against it.
+`Verify.Xunit` (or `Verify.XunitV3`, `Verify.MSTest`, `Verify.NUnit`, `Verify.TUnit`) captures output to a `.verified.txt` file; each test run diffs against it.
 
 **When to use**
 - HTTP response bodies (`Verify.Http`).
@@ -493,6 +506,44 @@ Sources:
 **Don't**
 - Don't gate PRs on wall-clock benchmarks in shared CI. Variance will kill you.
 - Don't benchmark in Debug. BDN refuses anyway; heed it.
+
+### Benchmarking against real infra (Testcontainers)
+
+There is no official BDN ↔ Testcontainers integration. The standard idiom: start the container in `[GlobalSetup]` and dispose in `[GlobalCleanup]` so startup cost is excluded from measurements; expose the resolved connection string to `[Benchmark]` methods.
+
+```csharp
+[MemoryDiagnoser]
+public class RepoBenchmarks
+{
+    private PostgreSqlContainer _pg = null!;
+    private NpgsqlConnection _conn = null!;
+
+    [GlobalSetup]
+    public async Task Setup()
+    {
+        _pg = new PostgreSqlBuilder().WithImage("postgres:17.2-alpine").Build();
+        await _pg.StartAsync();
+        _conn = new NpgsqlConnection(_pg.GetConnectionString());
+        await _conn.OpenAsync();
+    }
+
+    [GlobalCleanup]
+    public async Task Cleanup()
+    {
+        await _conn.DisposeAsync();
+        await _pg.DisposeAsync();
+    }
+
+    [Benchmark]
+    public Task<int> Roundtrip() => _conn.ExecuteScalarAsync<int>("select 1");
+}
+```
+
+Be aware: container startup is excluded, but Docker-host state (cache, page cache, neighboring containers) introduces variance the BDN warmup phase cannot iron out. Pin the image tag, reserve a dedicated runner, and treat results as a *trend* against a committed baseline — not as PR-gate truth.
+
+Sources:
+- BenchmarkDotNet — *Setup and Cleanup* (`[GlobalSetup]`/`[GlobalCleanup]` lifecycle) — https://benchmarkdotnet.org/articles/features/setup-and-cleanup.html
+- Testcontainers for .NET — https://dotnet.testcontainers.org/
 
 ---
 
