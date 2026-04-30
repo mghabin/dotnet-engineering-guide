@@ -40,10 +40,10 @@ GC time is allocation time deferred. Every `new` on the hot path is a future Gen
 - Use **`Span<T>` / `ReadOnlySpan<T>`** for stack-only slicing of arrays, strings, native memory. Zero-alloc, bounds-checked, JIT loves them.
 - Use **`Memory<T>` / `ReadOnlyMemory<T>`** when the buffer must escape a frame (async, fields).
 - **`stackalloc Span<T>`** for small, bounded buffers (≤ ~1 KB rule of thumb; never inside a loop without bounds; never escape it). Gate larger sizes with `if (size <= threshold) stackalloc … else ArrayPool`.
-- **`ArrayPool<T>.Shared.Rent` / `Return`** for transient buffers. **Always** `Return` in `finally`. Pass `clearArray: true` only if it held secrets.
+- **`ArrayPool<T>.Shared.Rent` / `Return`** for transient buffers. **Always** `Return` in `finally`. Pass `clearArray: true` only if it held secrets. **Honor the returned length:** `Rent(n)` may return an array *larger* than `n` — slice via `buffer.AsSpan(0, n)` and never assume `buffer.Length == n`.
 - **`MemoryPool<T>`** when the consumer wants `IMemoryOwner<T>`.
 - **`ObjectPool<T>`** (`Microsoft.Extensions.ObjectPool`) for expensive-to-construct mutable objects (StringBuilders, parsers). Use `DefaultObjectPoolProvider` and write a `PooledObjectPolicy<T>` with a `Reset`.
-- **`Microsoft.IO.RecyclableMemoryStream`** instead of `new MemoryStream()` for serialization/proxy/streaming. It pools blocks and avoids the LOH for large payloads.
+- **`Microsoft.IO.RecyclableMemoryStream`** instead of `new MemoryStream()` for serialization/proxy/streaming. It pools blocks and avoids the LOH for large payloads. Create **one static `RecyclableMemoryStreamManager` per process** (the manager is thread-safe; individual streams are not) and obtain streams from it.
 - Prefer **`struct`** for small (≤ 16 bytes), short-lived value types. Mark `readonly struct` and `readonly` members to let the JIT skip defensive copies.
 - **Span/Memory + `Stream` interop** before reaching for `Pipelines`. Modern `Stream` exposes `Read(Span<byte>)`, `Write(ReadOnlySpan<byte>)`, `ReadAsync(Memory<byte>, …)`, `WriteAsync(ReadOnlyMemory<byte>, …)` — pair these with a rented `ArrayPool<byte>` buffer and you've covered most "stream a payload through" paths without changing the I/O model. Escalate to **`PipeReader`/`PipeWriter`** only when you need backpressure, multi-segment `ReadOnlySequence<byte>` parsing, or true zero-copy framing.
 
@@ -205,11 +205,11 @@ Reflection is allocation, slow startup, and AOT-hostile. Most reasons to use it 
 
 ## 8. JIT & AOT
 
-**Tiered compilation** (default on): tier-0 compiles fast, runs unoptimized; hot methods promote to tier-1 (optimized) using **dynamic PGO** instrumentation. .NET 8 made dynamic PGO default; .NET 9 and **.NET 10** sharpened it (better devirtualization, profiled GDV, loop inversion, stack allocation of small objects, struct-arg improvements). You generally do nothing — but understand it when reading benchmarks.
+**Tiered compilation** (default-on since .NET Core 3.0; `TieredCompilation`, `TieredCompilation.QuickJit`): tier-0 compiles fast, runs unoptimized; hot methods promote to tier-1 (optimized) using **dynamic PGO** instrumentation. **.NET 8 made dynamic PGO default** (`TieredPGO=1` is now redundant) and shipped **AVX-512 / `Vector512<T>`** plus physical struct promotion. **.NET 9** sharpened DPGO further (better devirtualization, Arm64 vectorization, loop opts) and made **DATAS** the default GC mode (see §9). **.NET 10** added **physical promotion of struct args into shared registers**, **improved loop inversion**, more DPGO/stack-allocation work, and AVX10/512 codegen. You generally do nothing — but understand it when reading benchmarks.
 
 **ReadyToRun (R2R / crossgen2)**: AOT-compiles framework + your assemblies to native stubs that the JIT can replace. Use for **startup-sensitive** services. `dotnet publish -p:PublishReadyToRun=true`. Pair with `PublishReadyToRunComposite=true` for one-big-image, smaller disk, faster cold start; but updates require re-publish.
 
-**NativeAOT** (`<PublishAot>true</PublishAot>`): full ahead-of-time compilation, no JIT, no tiered comp, no runtime codegen. .NET 10 makes it production-ready for many workloads, including ASP.NET Core Minimal APIs, gRPC, and console tools.
+**NativeAOT** (`<PublishAot>true</PublishAot>`): full ahead-of-time compilation, no JIT, no tiered comp, no runtime codegen. **ASP.NET Core support shipped in .NET 8**; .NET 9/10 expanded it (smaller images, better library compatibility, EF/reflection improvements) so it's production-ready for many workloads, including ASP.NET Core Minimal APIs, gRPC, and console tools.
 - **Wins**: 60–90% faster cold start, ~50–70% smaller images, lower steady-state working set, no JIT memory cost, fewer attack surfaces.
 - **Costs (give-ups)**: no `Reflection.Emit`, no `Assembly.LoadFrom` of arbitrary IL, restricted reflection (must be analyzable / `[DynamicallyAccessedMembers]`), no plug-in / dynamic loading of new managed code, some libraries unsupported. Trimming is mandatory and aggressive.
 - **Targets**: cloud-native APIs, CLI tools, Lambda/Functions, serverless/cold-start-critical, sidecars.
@@ -228,14 +228,19 @@ Reflection is allocation, slow startup, and AOT-hostile. Most reasons to use it 
 - ReadyToRun & crossgen2: https://learn.microsoft.com/dotnet/core/deploying/ready-to-run
 - NativeAOT deployment & limitations: https://learn.microsoft.com/dotnet/core/deploying/native-aot/
 - Trimming overview: https://learn.microsoft.com/dotnet/core/deploying/trimming/
-- Stephen Toub, "Performance Improvements in .NET 10" (PGO/JIT sections) — https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-10/
+- Tiered compilation / Quick JIT / DPGO config: https://learn.microsoft.com/dotnet/core/runtime-config/compilation
+- What's new in the .NET 8 runtime (DPGO default-on, AVX-512, physical promotion): https://learn.microsoft.com/dotnet/core/whats-new/dotnet-8/runtime
+- What's new in the .NET 10 runtime (struct-arg promotion, loop inversion, DPGO): https://learn.microsoft.com/dotnet/core/whats-new/dotnet-10/runtime
+- Stephen Toub, "Performance Improvements in .NET 10" — https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-10/
+- Stephen Toub, "Performance Improvements in .NET 9" — https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-9/
+- Stephen Toub, "Performance Improvements in .NET 8" — https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-8/
 
 ---
 
 ## 9. GC
 
 **Modes**:
-- **Server GC** (`<ServerGarbageCollection>true</ServerGarbageCollection>`, default in ASP.NET Core): one heap and one GC thread per logical CPU, parallel collection, larger segments. Higher throughput, higher memory floor.
+- **Server GC** (`<ServerGarbageCollection>true</ServerGarbageCollection>` / `System.GC.Server`): one heap and one GC thread per logical CPU, parallel collection, larger segments. Higher throughput, higher memory floor. **The runtime default is Workstation GC**; ASP.NET Core's host opts the process into Server GC. **On a single-logical-CPU machine (or a container with cgroup CPU < 1) the runtime forces Workstation GC regardless of config** — relevant when you tightly CPU-limit a sidecar.
 - **Workstation GC**: one heap, one GC thread, smaller footprint. Default for desktop / single-CPU. Lower throughput.
 - **Concurrent / background GC** (`<ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>`, default): Gen2 collection runs concurrently with mutator, dramatically reducing pause times.
 
@@ -245,7 +250,7 @@ Reflection is allocation, slow startup, and AOT-hostile. Most reasons to use it 
 - **Set memory limits at the container level** so the runtime knows the budget. With Server GC + DATAS, .NET reads the cgroup limit and sizes heap heuristically (commonly around ~75% of the limit, but the exact target is implementation-defined and version-dependent — don't memorize the number).
 - **`DOTNET_GCHeapHardLimit`** / **`DOTNET_GCHeapHardLimitPercent`** are *override* knobs, not defaults. Reach for them in **multi-tenant pods**, **co-located sidecars**, or **tightly budgeted memory envs** where you'd rather GC more aggressively than risk an OOMKill. Trade-off: a hard cap forces more frequent / longer collections — measure pause time and throughput before pinning a value.
 - **`DOTNET_gcServer=1`**, **`DOTNET_gcConcurrent=1`** are typically already on for ASP.NET Core; verify in your image rather than re-asserting them everywhere.
-- **DATAS** (Dynamically Adapting To Application Sizes, on by default in .NET 8+ Server GC for containers) shrinks heap when idle. Disable only with reason and a benchmark.
+- **DATAS** (Dynamically Adapting To Application Sizes) shrinks heap when idle. **Introduced as opt-in in .NET 8 (`System.GC.DynamicAdaptationMode=1` / `DOTNET_GCDynamicAdaptationMode=1`); made the default Server-GC mode in .NET 9.** Disable only with reason and a benchmark.
 
 **Latency knobs (situational, not defaults)**
 - **`GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency`** — suppresses Gen2 (full blocking) collections for the scope, allowing only Gen0/Gen1/background work. Useful for **bounded** critical sections (trading windows, frame loops, request bursts with known duration). Costs: heap grows, fragmentation rises, and you *must* return to `Interactive` afterwards. Not a process-wide default.
@@ -257,9 +262,11 @@ Reflection is allocation, slow startup, and AOT-hostile. Most reasons to use it 
 
 **Sources:**
 - GC fundamentals: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
+- Workstation vs Server GC (defaults, single-CPU rule): https://learn.microsoft.com/dotnet/standard/garbage-collection/workstation-server-gc
 - Latency modes: https://learn.microsoft.com/dotnet/standard/garbage-collection/latency
-- DATAS & container heap heuristics: https://learn.microsoft.com/dotnet/standard/garbage-collection/datas
-- GC configuration knobs (`RetainVM`, `HeapHardLimit*`): https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector
+- What's new in the .NET 9 runtime (DATAS as default): https://learn.microsoft.com/dotnet/core/whats-new/dotnet-9/runtime
+- GC configuration knobs (`Server`, `DynamicAdaptationMode`, `HeapHardLimit*`, `RetainVM`): https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector
+- Stephen Toub, "Performance Improvements in .NET 9" (DATAS explainer) — https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-9/
 - Konrad Kokosa, *Pro .NET Memory Management* (Apress, 2018) — https://prodotnetmemory.com/
 - Maoni Stephens on GC internals: https://maoni0.medium.com/
 
@@ -294,7 +301,7 @@ Reflection is allocation, slow startup, and AOT-hostile. Most reasons to use it 
 
 ## 11. Containers — what to set
 
-There is **no universal "perf-tuned" env-var set**. The runtime defaults are good. Each tunable below moves a specific axis (startup vs steady-state vs memory) and can regress the others. Decide per service, then bake into the image.
+There is **no universal "perf-tuned" env-var set**. The runtime defaults are good. Each tunable below moves a specific axis (startup vs steady-state vs memory) and can regress the others. Decide per service, then bake into the image. (**Env-var prefix:** `DOTNET_` is the standardized prefix since .NET 6; the old `COMPlus_` names still work but new code should use `DOTNET_`.)
 
 **Minimal Dockerfile (no tuning, just sane base):**
 
@@ -389,12 +396,13 @@ ENV DOTNET_GCHeapHardLimitPercent=75
 - **`ImmutableArray<T>`** in fields where you want value-semantics with zero indirection (it's a `struct` wrapper around `T[]`).
 - **Pattern matching** (`is`, `switch` expressions) is generally as cheap as hand-written `if` chains; the compiler emits balanced dispatch. Prefer it for clarity.
 - **`SearchValues<T>`** (.NET 8+) for "does this byte/char appear in this set" — replaces `IndexOfAny(charArray)` with a vectorized lookup.
-- **SIMD**: `Vector<T>`, `Vector128/256/512<T>`, hardware-intrinsic namespaces (`System.Runtime.Intrinsics.X86/Arm`). .NET 10 added AVX10.2 and Arm64 SVE intrinsics. For numeric kernels only; the LINQ/Span methods already use SIMD internally.
-  - **AVX-512 / `Vector512<T>` portability:** wider isn't automatically faster. Probe `Vector512.IsHardwareAccelerated` and the specific `Avx512F.IsSupported` (etc.) at runtime; cloud VMs vary by SKU and frequency-throttle under sustained AVX-512 load. Benchmark on the **production hardware family**, not your dev laptop — a Vector512 win on Sapphire Rapids can be a Vector256 loss on an older Skylake worker. Keep a `Vector256` fallback path.
+- **SIMD**: `Vector<T>`, `Vector128/256/512<T>`, hardware-intrinsic namespaces (`System.Runtime.Intrinsics.X86/Arm`). **`Vector512<T>` and the `Avx512*` intrinsic classes shipped in .NET 8.** .NET 10 added AVX10.2 and Arm64 SVE intrinsics. For numeric kernels only; the LINQ/Span methods already use SIMD internally.
+  - **AVX-512 / `Vector512<T>` portability:** wider isn't automatically faster. Probe **`Vector512.IsHardwareAccelerated`** (runtime auto-detection of AVX-512F support) and the specific `Avx512F.IsSupported` (etc.) at runtime; without hardware support `Vector512<T>` operations fall back to software emulation. Cloud VMs vary by SKU and frequency-throttle under sustained AVX-512 load. Benchmark on the **production hardware family**, not your dev laptop — a Vector512 win on Sapphire Rapids can be a Vector256 loss on an older Skylake worker. Keep a `Vector256` fallback path.
 - **`[SkipLocalsInit]`** on methods that `stackalloc` large buffers and immediately overwrite — skips `init`-zero of locals. Measure; sometimes negligible.
 
 **Sources:**
 - `System.Runtime.Intrinsics`: https://learn.microsoft.com/dotnet/api/system.runtime.intrinsics
+- `Vector512<T>` (introduced .NET 8, runtime auto-detection): https://learn.microsoft.com/dotnet/api/system.runtime.intrinsics.vector512
 - `SearchValues<T>`: https://learn.microsoft.com/dotnet/api/system.buffers.searchvalues
 - Stephen Toub on SIMD/intrinsics improvements (annual posts): https://devblogs.microsoft.com/dotnet/author/toub/
 
@@ -478,7 +486,8 @@ BDN measures *steady-state*. Startup wins from R2R, NativeAOT, and source genera
 **Sources:**
 - BenchmarkDotNet docs: https://benchmarkdotnet.org/articles/overview.html
 - BDN how-it-works (warmup, pilot, statistics): https://benchmarkdotnet.org/articles/guides/how-it-works.html
-- Andrey Akinshin, *Pro .NET Benchmarking* (Apress, 2019) — methodology, statistical rigor, common pitfalls.
+- BenchmarkDotNet v0.14.0 release notes (dotMemory diagnoser, ScottPlot exporter, .NET 8 `UseArtifactsOutput` fix): https://github.com/dotnet/BenchmarkDotNet/releases/tag/v0.14.0
+- Akinshin, Andrey. *Pro .NET Benchmarking: The Art of Performance Measurement*. Apress, 2019. ISBN 978-1-4842-4940-6 — https://aakinshin.net/prodotnetbenchmarking/
 - dotnet/performance benchmark suite: https://github.com/dotnet/performance
 
 ---
@@ -509,7 +518,7 @@ BDN measures *steady-state*. Startup wins from R2R, NativeAOT, and source genera
 ### Community / people to follow
 - **Stephen Toub** (.NET libraries lead) — devblogs posts above; the source of truth.
 - **Adam Sitnik** (BenchmarkDotNet maintainer, .NET perf team) — https://adamsitnik.com/ — pooling, BDN, micro-opt patterns.
-- **Andrey Akinshin** (BenchmarkDotNet lead maintainer) — https://aakinshin.net/ — author of *Pro .NET Benchmarking*; the reference on BDN methodology, statistical analysis, and benchmark pitfalls.
+- **Andrey Akinshin** (BenchmarkDotNet lead maintainer) — https://aakinshin.net/ — author of *Pro .NET Benchmarking: The Art of Performance Measurement* (Apress, 2019, ISBN 978-1-4842-4940-6); the reference on BDN methodology, statistical analysis, and benchmark pitfalls.
 - **Ben Adams** (Illyriad Games / .NET community) — https://github.com/benaadams — real-world high-throughput .NET service perf, Kestrel/ASP.NET Core internals, allocation hunting.
 - **Maoni Stephens** (.NET GC architect) — https://maoni0.medium.com/ — anything about GC internals.
 - **Stephen Cleary** — https://blog.stephencleary.com/ — async / `Task` semantics, `ValueTask`, threading. Author of *Concurrency in C# Cookbook*.
