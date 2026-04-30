@@ -277,7 +277,8 @@ Reflection is allocation, slow startup, and AOT-hostile. Most reasons to use it 
 
 **Sources:**
 - Konrad Kokosa, *Pro .NET Memory Management* (Apress, 2018, ISBN 978-1-4842-4026-7) — https://prodotnetmemory.com/ — the definitive book on the runtime memory model, GC heap layout, and pause-time analysis.
-- Maoni Stephens (.NET GC architect) on GC internals — https://maoni0.medium.com/
+- Maoni Stephens (.NET GC architect) on GC internals — https://devblogs.microsoft.com/dotnet/author/maoni/
+- dotnet/runtime — GC design docs — https://github.com/dotnet/runtime/tree/main/docs/design/coreclr/botr (see `garbage-collection.md`).
 - Stephen Toub, "Performance Improvements in .NET 9" (DATAS explainer) — https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-9/
 - GC fundamentals: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
 - Workstation vs Server GC (defaults, single-CPU rule): https://learn.microsoft.com/dotnet/standard/garbage-collection/workstation-server-gc
@@ -407,7 +408,7 @@ ENV DOTNET_GCHeapHardLimitPercent=75
 **Sources:**
 - `LoggerMessage` source generator: https://learn.microsoft.com/dotnet/core/extensions/logger-message-generator
 - High-performance logging: https://learn.microsoft.com/dotnet/core/extensions/high-performance-logging
-- Logging primitives, `ILogger<T>`, and source-generated loggers as the language baseline → [Chapter 01 — foundations](./01-foundations.md#chapter-01--foundations).
+- Logging primitives, `ILogger<T>`, and source-generated loggers as the language baseline → [Chapter 01 — foundations §10 Source generators](./01-foundations.md#10-source-generators) (chapter-level ownership in [`coverage-map.md`](../coverage-map.md#chapter-01--foundations)).
 
 ---
 
@@ -544,16 +545,20 @@ BDN measures *steady-state*. Startup wins from R2R, NativeAOT, and source genera
 - **Diagnostic CLI tools** (`dotnet-counters`, `dotnet-trace`, `dotnet-dump`, `dotnet-gcdump`). https://learn.microsoft.com/dotnet/core/diagnostics/
 - **PerfView**. https://github.com/microsoft/perfview
 
-### Community / people to follow
+---
+
+## Further reading (non-normative)
+
+The list below is community/practitioner pointers, not part of the canonical `Sources:` block above. Use them for depth, war stories, and benchmarks; rules in the chapter body still come from the authoritative sources.
+
 - **Stephen Toub** (.NET libraries lead) — devblogs posts above; the source of truth.
 - **Adam Sitnik** (BenchmarkDotNet maintainer, .NET perf team) — https://adamsitnik.com/ — pooling, BDN, micro-opt patterns.
 - **Andrey Akinshin** (BenchmarkDotNet lead maintainer) — https://aakinshin.net/ — author of *Pro .NET Benchmarking: The Art of Performance Measurement* (Apress, 2019, ISBN 978-1-4842-4940-6); the reference on BDN methodology, statistical analysis, and benchmark pitfalls.
 - **Ben Adams** (Illyriad Games / .NET community) — https://github.com/benaadams — real-world high-throughput .NET service perf, Kestrel/ASP.NET Core internals, allocation hunting.
-- **Maoni Stephens** (.NET GC architect) — https://maoni0.medium.com/ — anything about GC internals.
+- **Maoni Stephens** (.NET GC architect) — https://devblogs.microsoft.com/dotnet/author/maoni/ — anything about GC internals.
 - **Stephen Cleary** — https://blog.stephencleary.com/ — async / `Task` semantics, `ValueTask`, threading. Author of *Concurrency in C# Cookbook*.
 - **Andrew Lock** — https://andrewlock.net/ — ASP.NET Core internals, source generators, deployment.
 - **David Fowler** (.NET architect) — Twitter/X and dotnet/aspnetcore — Pipelines, channels, ASP.NET Core perf patterns.
-- **Nick Chapsas** — YouTube *KeepCoding* — accessible perf walkthroughs and BenchmarkDotNet demos.
 - **Konrad Kokosa — *Pro .NET Memory Management*** (Apress, 2018, still the definitive book on the runtime memory model and GC). Companion site: https://prodotnetmemory.com/
 - **Sasha Goldshtein**, **Ben Watson — *Writing High-Performance .NET Code*** (2nd ed.) — practical perf engineering reference.
 - **Marc Gravell** — protobuf-net, Pipelines, Dapper perf.

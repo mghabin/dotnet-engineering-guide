@@ -156,7 +156,7 @@ See: [`docs/02-aspnetcore.md`](./docs/02-aspnetcore.md) §§3, 4, 5, 8.
 - Keep `MapInboundClaims = false` so `scp` / `roles` / `azp` stay verbatim, and validate `iss`, `aud`, signing key, `exp`, `nbf`; pin tenant where applicable ([learn.microsoft.com/entra/identity-platform/access-token-claims-reference](https://learn.microsoft.com/entra/identity-platform/access-token-claims-reference), [RFC 9068](https://datatracker.ietf.org/doc/html/rfc9068)).
 - **Two separate named policies** per capability: a delegated policy that requires the `scp` scope (and rejects tokens carrying `roles` without `scp`); an app-only policy that requires `roles` **and** an `azp`/`appid` allow-list **and** the absence of `scp`.
 - For endpoints that legitimately accept both flows, list both policies on the endpoint (`RequireAuthorization("XDelegated", "XApp")`) so each policy still enforces its own invariants.
-- Use `RequiredScope` / policy-based authorization, not ad-hoc claim sniffing in handlers; reference [`mghabin/entra-auth-patterns-dotnet`](https://github.com/mghabin/entra-auth-patterns-dotnet) for the runnable sample.
+- Use `RequiredScope` / policy-based authorization, not ad-hoc claim sniffing in handlers.
 
 **Don't:**
 
@@ -165,7 +165,7 @@ See: [`docs/02-aspnetcore.md`](./docs/02-aspnetcore.md) §§3, 4, 5, 8.
 - Accept tokens with `ver=1.0` when you expect `2.0` (or vice versa) without explicit handling.
 - Disable `ValidateIssuer`, `ValidateAudience`, or `ValidateLifetime`. Ever.
 
-See: [`docs/02-aspnetcore.md#10-authnauthz`](./docs/02-aspnetcore.md#10-authnauthz), decision tree [12 — auth policy shape](./docs/decision-trees.md#12-auth-policy-shape-delegated-scp-vs-app-only-roles--azp).
+See: [`docs/02-aspnetcore.md#10-authnauthz`](./docs/02-aspnetcore.md#10-authnauthz) (owner) and decision tree [12 — auth policy shape](./docs/decision-trees.md#12-auth-policy-shape-delegated-scp-vs-app-only-roles--azp). See also (non-normative, runnable sample): [`mghabin/entra-auth-patterns-dotnet`](https://github.com/mghabin/entra-auth-patterns-dotnet).
 
 ## 10. Caching
 

@@ -77,32 +77,7 @@ Decision-bearing prose lives in the chapters; this page only points there.
 - **Graceful shutdown** — Set `HostOptions.ShutdownTimeout` larger than the longest in-flight request; drain on `ApplicationStopping`, not on `StopAsync`.
   See [docs/06-cloud-native.md §11 Graceful shutdown](../docs/06-cloud-native.md#11-graceful-shutdown--drain-dont-drop).
 - **Telemetry-by-construction** — Every cross-boundary type takes `ILogger<T>`, owns an `ActivitySource`, emits a `Meter`; bake it in, do not retrofit after incidents.
-  See [docs/06-cloud-native.md §5 Observability](../docs/06-cloud-native.md#5-observability--opentelemetry-one-sdk-three-signals).
-
----
-
-## Cross-cutting (no single chapter owner)
-
-These do not map cleanly onto one chapter and stay here.
-
-### Vertical slice vs Clean Architecture
-
-- **Vertical slice** ([Jimmy Bogard](https://www.jimmybogard.com/vertical-slice-architecture/)): organise by feature folder; each slice owns its request, handler, validator, DTO. Best where features evolve independently.
-- **Clean Architecture** ([Steve Smith template](https://github.com/ardalis/CleanArchitecture)): organise by layer (Domain / Application / Infrastructure / Web). Best for stable, complex domains with cross-cutting policies.
-- Hybrid is fine: Clean at the assembly level, vertical-slice within `Application`. Pick a *primary* axis.
-- **Don't** mix the two axes at the same level — it produces a folder tree nobody can navigate.
-
-### Bounded contexts & monorepo strategy
-
-- One bounded context per deployable; one solution per bounded context inside the monorepo.
-- Cross-context calls go over the wire (HTTP / messaging) — never via a shared `Domain` project.
-- See [`monorepo.md`](./monorepo.md) for the repository layout rules.
-
-### Domain events vs integration events
-
-- Domain events fire inside the aggregate boundary and dispatch in-process after `SaveChanges` (see [docs/03-data.md §6](../docs/03-data.md#6-transactions--unit-of-work)).
-- Integration events leave the process via the outbox.
-- **Don't** conflate the two — the failure modes differ and one becomes the other only by crossing the outbox.
+  See [docs/06-cloud-native.md §5 Observability](../docs/06-cloud-native.md#5-observability-opentelemetry-one-sdk-three-signals).
 
 ---
 

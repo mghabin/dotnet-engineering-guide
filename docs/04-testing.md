@@ -804,7 +804,6 @@ Sources:
 ### Community
 - Khalid Abuhakmeh — testing & ASP.NET Core posts — https://khalidabuhakmeh.com/
 - Andrew Lock — *.NET Escapades* (integration tests, WebApplicationFactory, Testcontainers) — https://andrewlock.net/
-- Nick Chapsas — YouTube deep-dives on xUnit v3, NSubstitute, Verify — https://www.youtube.com/@nickchapsas
 - Jimmy Bogard — *Los Techies* / blog (integration testing, Respawn author) — https://www.jimmybogard.com/
 - Steve Smith (Ardalis) — testing & clean architecture — https://ardalis.com/
 - Bradley Wells — xUnit v3 / MTP migration guides — https://bradwells.com/ (and https://wellsb.com)
