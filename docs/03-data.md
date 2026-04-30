@@ -574,7 +574,7 @@ Sources:
 
 | Cache | When |
 |---|---|
-| **`OutputCache`** (ASP.NET Core middleware) | HTTP **response** caching — varies by route/query/header, supports tag-based eviction. Use for read endpoints whose entire response is cacheable. |
+| **`OutputCache`** (ASP.NET Core middleware) | HTTP **response** caching at the middleware tier — owned by ch02. See [ch02 §9 — Output Caching](./02-aspnetcore.md#9-output-caching) for the full doctrine (distributed `IOutputCacheStore`, tag invalidation, Aspire Redis store). |
 | **`HybridCache`** (.NET 9 GA, .NET 10 hardened) | App **data** caching with L1 in-memory + optional L2 distributed (Redis), built-in **stampede protection**, and tags. The default for new app-data caching. |
 | **`IDistributedCache`** (Redis / SQL Server) | Simple distributed K/V when you don't need L1 or stampede protection (sessions, short tokens, small shared blobs). Most new code should reach for `HybridCache` instead. |
 | **`IMemoryCache`** | Single-process, tiny, per-instance state. Fine inside a singleton service; not a cluster cache. |
@@ -600,7 +600,6 @@ var dto = await cache.GetOrCreateAsync(
 
 Sources:
 - HybridCache (and `Microsoft.Extensions.Caching.Hybrid` NuGet): https://learn.microsoft.com/aspnet/core/performance/caching/hybrid
-- OutputCache middleware: https://learn.microsoft.com/aspnet/core/performance/caching/output
 - Distributed caching: https://learn.microsoft.com/aspnet/core/performance/caching/distributed
 - Andrew Lock on HybridCache: https://andrewlock.net/
 - Steve Gordon — HybridCache internals: https://www.stevejgordon.co.uk/
