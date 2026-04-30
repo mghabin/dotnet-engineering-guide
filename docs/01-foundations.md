@@ -32,7 +32,9 @@ not start with `.sln`. Migrate existing ones with `dotnet sln migrate`.
 <Project>
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
+    <!-- LangVersion is intentionally omitted: the TFM picks the matching default
+         (C# 13 for net9.0, C# 14 for net10.0). `latest` varies by installed compiler
+         and can enable features unsupported by the selected TFM, which breaks reproducibility. -->
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
@@ -76,6 +78,16 @@ cycle magnet. Internal types + `InternalsVisibleTo` for test seams; no
 debuggers can resolve to GitHub source. Do not skip Source Link on internal
 libs; you will want it the first time prod stack-traces hit a NuGet'd package.
 
+**Sources:**
+
+- [.NET SDK `global.json`](https://learn.microsoft.com/dotnet/core/tools/global-json) — SDK pinning and `rollForward` semantics.
+- [Configure C# language version](https://learn.microsoft.com/dotnet/csharp/language-reference/configure-language-version) — why `latest` is hostile to reproducibility; let the TFM pick the default.
+- [Solution file (`.slnx`) format](https://learn.microsoft.com/visualstudio/ide/solutions-files) — XML solution format and `dotnet sln migrate`.
+- [`Directory.Build.props` & customizing builds](https://learn.microsoft.com/visualstudio/msbuild/customize-by-directory) — repo-wide MSBuild defaults.
+- [Central Package Management](https://learn.microsoft.com/nuget/consume-packages/central-package-management) — `Directory.Packages.props`, transitive pinning.
+- [Source Link](https://learn.microsoft.com/dotnet/standard/library-guidance/sourcelink) — debug into NuGet packages from prod stacks.
+- [`ContinuousIntegrationBuild`](https://learn.microsoft.com/dotnet/core/project-sdk/msbuild-props#continuousintegrationbuild) — what the CI flag strips from PDBs.
+
 ---
 
 ## 2. Language (C# 13)
@@ -89,10 +101,12 @@ not scattered. Don't `global using` your own domain types — only framework
 namespaces (`System.Collections.Immutable`, `System.Threading.Channels`).
 
 **Primary constructors — use them sparingly.** They are *not* records.
-Captured parameters become hidden mutable fields with no readonly guarantee,
-they can shadow base members, and the captured parameter is in scope for the
-entire class body which encourages accidental allocation per-method. Use them
-for small DI-style holders where every member just forwards a dependency:
+Captured parameters become hidden mutable instance storage with no `readonly`
+guarantee — the parameter is in scope for the whole class body and remains
+reassignable, which makes "is this value still what was passed in?" a real
+question in code review. They can also shadow base members and complicate
+debugging (no field to inspect by name). Use them for small DI-style holders
+where every member just forwards a dependency:
 
 ```csharp
 public sealed class OrderService(IOrderRepository repo, ILogger<OrderService> logger)
@@ -101,9 +115,29 @@ public sealed class OrderService(IOrderRepository repo, ILogger<OrderService> lo
 }
 ```
 
-**Don't** mix primary-ctor parameters with additional fields/state, and **don't**
-use them on `struct`s where you actually want `readonly` semantics. Promote to
-explicit `private readonly` fields the moment a class grows non-trivial state.
+**Don't** mix primary-ctor parameters with additional fields/state when the
+parameter is also captured (you end up with two storage models in one type).
+Primary constructors are *fine* on `readonly struct` for simple immutable init
+where the parameters flow straight into properties — the danger is capturing
+mutable state, not the syntax itself. Promote to explicit `private readonly`
+fields the moment a class grows non-trivial state, or whenever you need a true
+`readonly` guarantee on the captured value.
+
+**`System.Threading.Lock` (C# 13) for new intra-process mutexes.** The new
+`Lock` type pairs with `lock (myLock) { ... }` and is allocation-free, with a
+disposable `EnterScope()` for `using`-style acquisition. Prefer it in new code
+over `lock (new object())`; the only reason to keep an `object` lock is interop
+with code that already exposes one or callers that pass `object` through
+reflection.
+
+```csharp
+private readonly Lock _gate = new();
+
+public void Enqueue(Item item)
+{
+    lock (_gate) { _buffer.Add(item); }
+}
+```
 
 **`required` members > constructor explosion.** For DTOs and config types,
 prefer `required init` properties over telescoping constructors. Combine with
@@ -150,6 +184,17 @@ do not chain more than ~5 arms — extract to a method. `is { } x` for
 deterministic disposal. Only use the block form when scope must end before the
 method does.
 
+**Sources:**
+
+- [What's new in C# 13](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-13) — `params` collections, `ref readonly`, partial properties, new `Lock` type.
+- [`System.Threading.Lock` (C# 13)](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-13#new-lock-object) — when the compiler rewrites `lock` to `EnterScope()`.
+- [Primary constructors tutorial](https://learn.microsoft.com/dotnet/csharp/whats-new/tutorials/primary-constructors) — capture semantics, when to promote to fields, struct guidance.
+- [Collection expressions](https://learn.microsoft.com/dotnet/csharp/language-reference/operators/collection-expressions) — target-typing rules.
+- [`params` collections](https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/params) — `params ReadOnlySpan<T>` and zero-alloc dispatch.
+- [Records](https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/record) — value equality, `with`, when to choose record vs class.
+- [Pattern matching](https://learn.microsoft.com/dotnet/csharp/fundamentals/functional/pattern-matching) — switch expressions, property/list patterns.
+- [`ref readonly` parameters](https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/ref#ref-readonly-parameters) — when to use over `in`.
+
 ---
 
 ## 3. Nullable reference types
@@ -190,6 +235,12 @@ with `where T : struct` and write `T?` explicitly, or use two overloads.
 auto-generated files only. New code does not get a nullable annotation
 amnesty.
 
+**Sources:**
+
+- [Nullable reference types](https://learn.microsoft.com/dotnet/csharp/nullable-references) — enabling, suppression rules.
+- [Nullable static-analysis attributes](https://learn.microsoft.com/dotnet/csharp/language-reference/attributes/nullable-analysis) — `NotNullWhen`, `MemberNotNull`, `DoesNotReturn`, etc.
+- [`ArgumentNullException.ThrowIfNull`](https://learn.microsoft.com/dotnet/api/system.argumentnullexception.throwifnull) — annotated guard; feeds flow analysis.
+
 ---
 
 ## 4. Async
@@ -212,12 +263,22 @@ buffered reads). Misusing it (awaiting twice, blocking on it, storing it) is a
 correctness bug. Rule of thumb: if you can't point to a benchmark, use `Task`.
 
 **`IAsyncEnumerable<T>`** for streamed pull-based pipelines (paged APIs, log
-tails, EF Core `AsAsyncEnumerable`). Always accept and propagate
-`[EnumeratorCancellation] CancellationToken`:
+tails, EF Core `AsAsyncEnumerable`). Both sides must participate in
+cancellation: producers accept `[EnumeratorCancellation] CancellationToken`,
+and consumers attach a token via `.WithCancellation(ct)` (the token passed to
+`GetAsyncEnumerator` is what `[EnumeratorCancellation]` actually wires up — a
+plain `await foreach` does *not* propagate the ambient token):
 
 ```csharp
+// Producer
 public async IAsyncEnumerable<Page> ReadAsync(
-    [EnumeratorCancellation] CancellationToken ct = default) { ... }
+    [EnumeratorCancellation] CancellationToken ct = default) { /* illustrative */ }
+
+// Consumer
+await foreach (var page in source.ReadAsync().WithCancellation(ct))
+{
+    // ...
+}
 ```
 
 For push-based fan-in/out, use `System.Threading.Channels` — bounded
@@ -245,12 +306,25 @@ binding). `Task.Delay` without `ct` is a bug.
 streams in .NET). Don't mix `using`/`await using` on the same async-disposable
 — the sync `Dispose` may block.
 
-**Don't `async void`.** Except for event handlers. Exceptions go to
-`SynchronizationContext` / `TaskScheduler.UnobservedTaskException` and crash
-the process.
+**Don't `async void`.** Except for event handlers. There is no `Task` to
+observe, so the method is non-composable (you can't `await` it, you can't
+`WhenAll` it, you can't unit-test it cleanly) and any thrown exception
+propagates on the captured `SynchronizationContext` — or, with no context, on
+the unhandled-exception path that tears down the process. `TaskScheduler.UnobservedTaskException`
+is *not* the catch-net here (there is no Task).
 
 **Don't capture `this` accidentally** in long-lived `async` lambdas held by a
 singleton — the captured state is the lifetime of the singleton.
+
+**Sources:**
+
+- [Task-based Asynchronous Pattern (TAP)](https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/task-based-asynchronous-pattern-tap) — TAP guidance.
+- [`ConfigureAwait` FAQ — Stephen Toub](https://devblogs.microsoft.com/dotnet/configureawait-faq/) — definitive treatment.
+- [Understanding `ValueTask<T>` — Stephen Toub](https://devblogs.microsoft.com/dotnet/understanding-the-whys-whats-and-whens-of-valuetask/) — when it pays off; correctness rules.
+- [Generate and consume async streams](https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/generate-consume-asynchronous-stream) — `[EnumeratorCancellation]` + `WithCancellation` pairing.
+- [`System.Threading.Channels`](https://learn.microsoft.com/dotnet/core/extensions/channels) — producer/consumer primitives.
+- [`Parallel.ForEachAsync`](https://learn.microsoft.com/dotnet/api/system.threading.tasks.parallel.foreachasync) — bounded async iteration.
+- [Stephen Cleary — *Async/Await Best Practices*](https://learn.microsoft.com/archive/msdn-magazine/2013/march/async-await-best-practices-in-asynchronous-programming) — `async void` exception flow, sync-over-async.
 
 ---
 
@@ -287,21 +361,53 @@ If you find yourself injecting `IOptions<T>` into a class that already takes
 the typed value — just inject `T` (registered with
 `services.AddSingleton(sp => sp.GetRequiredService<IOptions<T>>().Value)`).
 
-**`IHttpClientFactory` for every outbound HTTP call.** Never `new
-HttpClient()` (socket exhaustion) and never hold a static `HttpClient` for a
-host that may rotate DNS. Two flavors:
+**`HttpClient`: pick one of two valid defaults — never `new HttpClient()` ad
+hoc.** Both options solve socket exhaustion and DNS staleness; pick by whether
+you need DI/policies or not.
 
-- **Named clients**: `services.AddHttpClient("github", c => ...)`, resolved
-  via `IHttpClientFactory.CreateClient("github")`. Good for a small number of
-  ad-hoc calls.
-- **Typed clients**: `services.AddHttpClient<IGitHubClient, GitHubClient>(...)`.
-  The class takes `HttpClient` in its constructor; lifetime is **transient**,
-  but the underlying handler is pooled. This is the default — it gives you a
-  testable seam and DI-resolved configuration.
+- **`IHttpClientFactory` (default for app code).** Use when you want DI-resolved
+  configuration, named/typed clients, and policy plug-in points
+  (`Microsoft.Extensions.Http.Resilience`, delegating handlers, telemetry).
+  Two flavors:
+  - **Named clients**: `services.AddHttpClient("github", c => ...)`, resolved
+    via `IHttpClientFactory.CreateClient("github")`. Good for a small number
+    of ad-hoc calls.
+  - **Typed clients**: `services.AddHttpClient<IGitHubClient, GitHubClient>(...)`.
+    The class takes `HttpClient` in its constructor; lifetime is **transient**,
+    but the underlying handler is pooled. Default for new code — testable seam,
+    DI-resolved configuration.
+- **Long-lived static/singleton `HttpClient` with `SocketsHttpHandler.PooledConnectionLifetime`.**
+  Equally supported by Microsoft today. Appropriate for libraries or
+  ahead-of-time scenarios where you don't want to take a dependency on
+  `IHttpClientFactory`, and for hot paths where you measured the per-request
+  factory overhead and care. Set `PooledConnectionLifetime` so connections
+  recycle and DNS gets re-resolved:
+
+  ```csharp
+  // illustrative
+  private static readonly HttpClient Shared = new(new SocketsHttpHandler
+  {
+      PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+  });
+  ```
+
+The anti-pattern is *neither* of these — it's `new HttpClient()` per call
+(socket exhaustion) or a static `HttpClient` with the default handler (DNS
+never re-resolves).
 
 Add resilience via `Microsoft.Extensions.Http.Resilience` (Polly v8 under the
 hood): `.AddStandardResilienceHandler()` gets you retry+circuit-breaker+timeout
 defaults that are sensible.
+
+**Sources:**
+
+- [Dependency injection in .NET](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection) — lifetimes, validation.
+- [DI guidelines / pitfalls](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection-guidelines) — captive dependency, scope validation, disposal.
+- [Keyed services in .NET 8](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection#keyed-services) — official intro.
+- [Options pattern](https://learn.microsoft.com/dotnet/core/extensions/options) — `IOptions`, `IOptionsSnapshot`, `IOptionsMonitor` semantics.
+- [`HttpClient` guidelines for .NET](https://learn.microsoft.com/dotnet/fundamentals/networking/http/httpclient-guidelines) — when `IHttpClientFactory` vs long-lived static `HttpClient` + `PooledConnectionLifetime`.
+- [`IHttpClientFactory`](https://learn.microsoft.com/dotnet/core/extensions/httpclient-factory) — named/typed clients, handler pooling.
+- [`Microsoft.Extensions.Http.Resilience`](https://learn.microsoft.com/dotnet/core/resilience/http-resilience) — Polly v8 standard handlers.
 
 ---
 
@@ -346,6 +452,13 @@ environment variables → command-line. Don't fight the precedence; document it.
 composition root; injecting `IConfiguration` into business logic is a code
 smell that defeats validation, defeats reload, and defeats testability.
 
+**Sources:**
+
+- [Options pattern](https://learn.microsoft.com/dotnet/core/extensions/options) — semantics of `IOptions`, `IOptionsSnapshot`, `IOptionsMonitor`.
+- [Options validation](https://learn.microsoft.com/dotnet/core/extensions/options#options-validation) — `ValidateOnStart`, `IValidateOptions<T>`, `[OptionsValidator]`.
+- [Configuration providers & precedence](https://learn.microsoft.com/dotnet/core/extensions/configuration) — layering rules.
+- [Safe storage of secrets in development](https://learn.microsoft.com/aspnet/core/security/app-secrets) — `dotnet user-secrets`.
+
 ---
 
 ## 7. Disposal
@@ -371,6 +484,12 @@ used in sync contexts; otherwise just `IAsyncDisposable`. Don't call
 **`CancellationTokenSource` is `IDisposable`.** Linked CTS instances
 (`CreateLinkedTokenSource`) leak callback registrations until disposed —
 always `using`.
+
+**Sources:**
+
+- [Implement `IDisposable` / dispose pattern](https://learn.microsoft.com/dotnet/standard/garbage-collection/implementing-dispose) — when finalizers, when not.
+- [Implement `IAsyncDisposable`](https://learn.microsoft.com/dotnet/standard/garbage-collection/implementing-disposeasync) — `await using` rules.
+- [`CancellationTokenSource`](https://learn.microsoft.com/dotnet/api/system.threading.cancellationtokensource) — disposal of linked sources.
 
 ---
 
@@ -402,6 +521,8 @@ captured an exception (e.g., from a fan-out) and want to rethrow it elsewhere
 without losing the original stack:
 
 ```csharp
+using System.Runtime.ExceptionServices;
+
 ExceptionDispatchInfo.Capture(ex).Throw();
 ```
 
@@ -411,6 +532,12 @@ a catch block preserves it.
 **Custom exception types** should be sparse and meaningful. If callers won't
 catch it specifically, it shouldn't exist as its own type — a built-in
 (`InvalidOperationException`, `ArgumentException`) is fine.
+
+**Sources:**
+
+- [Best practices for exceptions](https://learn.microsoft.com/dotnet/standard/exceptions/best-practices-for-exceptions) — design rules.
+- [`ExceptionDispatchInfo`](https://learn.microsoft.com/dotnet/api/system.runtime.exceptionservices.exceptiondispatchinfo) — preserving stacks across boundaries.
+- [`ProblemDetails` (RFC 7807)](https://datatracker.ietf.org/doc/html/rfc7807) — standard error envelope for HTTP APIs.
 
 ---
 
@@ -441,6 +568,12 @@ the cost of allocation per change dominates. Be explicit: name the type
 ids) that's exactly right. For entities with identity, override or write a
 class — never let two `Customer` records with the same fields be `==`.
 
+**Sources:**
+
+- [Records](https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/record) — value equality, `with` expressions.
+- [`System.Collections.Immutable`](https://learn.microsoft.com/dotnet/api/system.collections.immutable) — `ImmutableArray<T>`, `ImmutableList<T>`.
+- [Choosing between class and struct](https://learn.microsoft.com/dotnet/standard/design-guidelines/choosing-between-class-and-struct) — when value semantics fit.
+
 ---
 
 ## 10. Source generators
@@ -450,8 +583,12 @@ default; fall back to reflection only when shape isn't statically knowable.
 
 - **`LoggerMessage` source generator** (`[LoggerMessage(...)]`) for all hot-path
   logging. It eliminates boxing, string formatting, and the enabled-check
-  ceremony. Unstructured `_logger.LogInformation($"...")` is a bug — it
-  defeats structured logging and allocates even when disabled.
+  ceremony for the *log call itself*. Unstructured `_logger.LogInformation($"...")`
+  is a bug — it defeats structured logging and allocates even when disabled.
+  When the *arguments* are expensive to compute (serialization, LINQ, allocations
+  for diagnostic snapshots), still guard the call site manually with
+  `if (logger.IsEnabled(LogLevel.Debug))` — the generator can't elide your
+  argument evaluation.
 - **`System.Text.Json` source generator** (`[JsonSerializable(typeof(T))]` on a
   partial `JsonSerializerContext`). Required for AOT/trimming, faster than
   reflection-based serialization, and removes a runtime startup cost. Pass
@@ -464,13 +601,26 @@ default; fall back to reflection only when shape isn't statically knowable.
   7+). Removes per-request reflection; you get it for free as long as your
   endpoint signatures are static. Don't dynamically build endpoints if you
   can express them statically.
-- **`StringSyntax` + interceptors** for compile-time SQL/JSON validation in
-  selected libraries — adopt as the ecosystem stabilizes.
+- **`StringSyntax`** (`[StringSyntax(StringSyntaxAttribute.Json)]`,
+  `Regex`, etc.) gives IDEs and analyzers the hint they need to colorize and
+  validate string literal payloads. *Interceptors are an experimental
+  preview-flagged language feature, not a current C# 13 default — treat them
+  as ecosystem-specific and don't ship them in shared libraries.*
 
 If you write your own generator, ship it as a separate analyzer project with
 `<IsRoslynComponent>true</IsRoslynComponent>`, target
 `netstandard2.0`, and **never** take third-party dependencies (the analyzer
 runs in the IDE — every dep becomes a load-order hazard).
+
+**Sources:**
+
+- [`LoggerMessage` source generator](https://learn.microsoft.com/dotnet/core/extensions/logger-message-generator) — high-perf logging.
+- [Logging guidance for library authors](https://learn.microsoft.com/dotnet/core/extensions/logging-library-authors) — when to call `IsEnabled` to elide argument evaluation.
+- [`System.Text.Json` source generation](https://learn.microsoft.com/dotnet/standard/serialization/system-text-json/source-generation) — AOT, perf, startup.
+- [`GeneratedRegex`](https://learn.microsoft.com/dotnet/standard/base-types/regular-expression-source-generators) — compile-time regex.
+- [`StringSyntaxAttribute`](https://learn.microsoft.com/dotnet/api/system.diagnostics.codeanalysis.stringsyntaxattribute) — string-literal hints for analyzers/IDEs.
+- [What's new in C# 13](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-13) — confirms interceptors are not a shipped C# 13 feature.
+- [Source generators overview](https://learn.microsoft.com/dotnet/csharp/roslyn-sdk/source-generators-overview) — authoring guidance.
 
 ---
 
@@ -520,63 +670,98 @@ debug a NuGet'd library straight to the commit it was built from.
 `-p:DebugType=portable` and pushes `.snupkg` symbols separately to your symbol
 server (or NuGet.org's).
 
----
+**Sources:**
 
-## Sources
-
-### Authoritative (Microsoft / .NET team)
-
-- [.NET SDK `global.json`](https://learn.microsoft.com/dotnet/core/tools/global-json) — SDK pinning and `rollForward` semantics.
-- [Solution file (`.slnx`) format](https://learn.microsoft.com/visualstudio/ide/solutions-files) — XML solution format, `dotnet sln migrate`, tooling support.
-- [`Directory.Build.props` & customizing builds](https://learn.microsoft.com/visualstudio/msbuild/customize-by-directory) — repo-wide MSBuild defaults.
-- [Central Package Management](https://learn.microsoft.com/nuget/consume-packages/central-package-management) — `Directory.Packages.props`, transitive pinning.
-- [Source Link](https://learn.microsoft.com/dotnet/standard/library-guidance/sourcelink) — debug into NuGet packages from prod stacks.
-- [Reproducible builds with `ContinuousIntegrationBuild`](https://learn.microsoft.com/dotnet/core/project-sdk/msbuild-props#continuousintegrationbuild) — CI flag and what it strips.
-- [What's new in C# 13](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-13) — `params` collections, `ref readonly`, partial properties, etc.
-- [What's new in C# 12: primary constructors](https://learn.microsoft.com/dotnet/csharp/whats-new/tutorials/primary-constructors) — semantics, capture, when (not) to use.
-- [Collection expressions](https://learn.microsoft.com/dotnet/csharp/language-reference/operators/collection-expressions) — target typing rules.
-- [Records (C# language reference)](https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/record) — value equality, `with`, when to choose record vs class.
-- [Nullable reference types](https://learn.microsoft.com/dotnet/csharp/nullable-references) — enabling, suppression, attributes.
-- [Nullable static-analysis attributes](https://learn.microsoft.com/dotnet/csharp/language-reference/attributes/nullable-analysis) — `NotNullWhen`, `MemberNotNull`, `DoesNotReturn`, etc.
-- [Async programming (Task-based)](https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/task-based-asynchronous-pattern-tap) — TAP guidance.
-- [`ConfigureAwait` FAQ — Stephen Toub](https://devblogs.microsoft.com/dotnet/configureawait-faq/) — definitive treatment.
-- [`ValueTask<T>` usage guidance — Stephen Toub](https://devblogs.microsoft.com/dotnet/understanding-the-whys-whats-and-whens-of-valuetask/) — when it's worth it; correctness rules.
-- [`IAsyncEnumerable<T>` and `[EnumeratorCancellation]`](https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/generate-consume-asynchronous-stream) — async streams.
-- [`System.Threading.Channels`](https://learn.microsoft.com/dotnet/core/extensions/channels) — producer/consumer primitives.
-- [Dependency injection in .NET](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection) — lifetimes, validation.
-- [DI guidelines / pitfalls](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection-guidelines) — captive dependency, scope validation, disposal.
-- [Keyed services in .NET 8](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection#keyed-services) — official intro.
-- [Options pattern](https://learn.microsoft.com/dotnet/core/extensions/options) — `IOptions`, `IOptionsSnapshot`, `IOptionsMonitor` semantics.
-- [Options validation](https://learn.microsoft.com/dotnet/core/extensions/options#options-validation) — `ValidateOnStart`, `IValidateOptions<T>`, `[OptionsValidator]`.
-- [`IHttpClientFactory`](https://learn.microsoft.com/dotnet/core/extensions/httpclient-factory) — named/typed clients, handler pooling.
-- [`Microsoft.Extensions.Http.Resilience`](https://learn.microsoft.com/dotnet/core/resilience/http-resilience) — Polly v8 standard handlers.
-- [Configuration providers & precedence](https://learn.microsoft.com/dotnet/core/extensions/configuration) — layering rules.
-- [Safe storage of secrets in development](https://learn.microsoft.com/aspnet/core/security/app-secrets) — `dotnet user-secrets`.
-- [Implement `IDisposable` / dispose pattern](https://learn.microsoft.com/dotnet/standard/garbage-collection/implementing-dispose) — when finalizers, when not.
-- [Implement `IAsyncDisposable`](https://learn.microsoft.com/dotnet/standard/garbage-collection/implementing-disposeasync) — `await using` rules.
-- [Best practices for exceptions](https://learn.microsoft.com/dotnet/standard/exceptions/best-practices-for-exceptions) — design rules.
-- [`ExceptionDispatchInfo`](https://learn.microsoft.com/dotnet/api/system.runtime.exceptionservices.exceptiondispatchinfo) — preserving stacks across boundaries.
-- [`LoggerMessage` source generator](https://learn.microsoft.com/dotnet/core/extensions/logger-message-generator) — high-perf logging.
-- [`System.Text.Json` source generation](https://learn.microsoft.com/dotnet/standard/serialization/system-text-json/source-generation) — AOT, perf, startup.
-- [`GeneratedRegex`](https://learn.microsoft.com/dotnet/standard/base-types/regular-expression-source-generators) — compile-time regex.
 - [Code analysis in .NET](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/overview) — `AnalysisMode`, `AnalysisLevel`, `EnforceCodeStyleInBuild`.
 - [`dotnet format`](https://learn.microsoft.com/dotnet/core/tools/dotnet-format) — formatting + style verification.
 - [NuGet package lock files](https://learn.microsoft.com/nuget/consume-packages/package-references-in-project-files#locking-dependencies) — `--locked-mode`, `packages.lock.json`.
 - [NuGet audit (`<NuGetAudit>`)](https://learn.microsoft.com/nuget/concepts/auditing-packages) — vulnerability scanning at restore.
 - [Reproducible builds (.NET)](https://github.com/dotnet/reproducible-builds) — repo and guidance.
 
-### Community
+---
 
-- [Stephen Cleary — *Async/Await Best Practices*](https://learn.microsoft.com/archive/msdn-magazine/2013/march/async-await-best-practices-in-asynchronous-programming) — the original MSDN article; still the canon.
+## 12. Runtime configuration
+
+The defaults are good. Change them only with measurement, and pin the
+overrides in source so they ride with the binary instead of living in a
+deployment script.
+
+**Server GC for server workloads.** ASP.NET Core and most service hosts
+already opt into Server GC; verify on your project (it is the default for the
+ASP.NET Core SDK and for `dotnet new web`/`webapi` templates). For console
+apps and worker services, opt in explicitly:
+
+```xml
+<PropertyGroup>
+  <ServerGarbageCollection>true</ServerGarbageCollection>
+  <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+</PropertyGroup>
+```
+
+Server GC uses one heap and one GC thread per logical core, which is the right
+default for throughput-bound services. Workstation GC is the default for
+console apps and is appropriate for short-lived CLIs and desktop processes.
+
+**Tiered compilation and Dynamic PGO are on by default — leave them on.**
+Tiered compilation lets methods start at quick-JIT and re-JIT to optimized
+code based on observed call counts; Dynamic PGO (default since .NET 8)
+collects type and branch profiles in the tier-0 code and feeds them to the
+tier-1 JIT. Disabling either is a measurable regression on virtually every
+real workload — do not disable as a "just in case" tweak. If you suspect a
+specific issue, isolate it via `DOTNET_TieredCompilation=0` /
+`DOTNET_TieredPGO=0` *in a benchmark*, never in production by default.
+
+**Thread-pool tuning needs a benchmark.** `ThreadPool.SetMinThreads` and the
+`System.Threading.ThreadPool.MinThreads` runtime config exist for the
+specific case where bursts of synchronous-blocking work starve the pool faster
+than the hill-climbing heuristic recovers. Do not raise minimums "for safety"
+— you mask design bugs (sync-over-async, blocking I/O) that will surface
+elsewhere. Fix the blocking call first.
+
+**Pin runtime knobs via `RuntimeHostConfigurationOption`, not env vars.**
+For app-scoped behavior (HTTP/2, socket handler defaults, JSON reflection,
+etc.), bake the switch into the project so every deployment carries the same
+behavior:
+
+```xml
+<ItemGroup>
+  <RuntimeHostConfigurationOption
+      Include="System.Net.SocketsHttpHandler.Http2UnencryptedSupport"
+      Value="true" />
+</ItemGroup>
+```
+
+This emits the switch into `runtimeconfig.json`, which the runtime reads at
+startup and which `dotnet publish` carries into containers untouched.
+Environment variables are fine for one-off diagnostics but should never be
+how a release knows to behave correctly.
+
+**`runtimeconfig.template.json`** is the override hatch for properties without
+a first-class MSBuild surface (e.g. `System.GC.HeapHardLimit`). Commit it
+next to the csproj; do not let ops set GC policy in the deploy pipeline.
+
+**Sources:**
+
+- [Runtime configuration options](https://learn.microsoft.com/dotnet/core/runtime-config/) — index of every supported knob.
+- [GC configuration options](https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector) — Server vs Workstation, concurrent, heap limits.
+- [Tiered compilation](https://learn.microsoft.com/dotnet/core/runtime-config/compilation) — how tiers and quick-JIT interact.
+- [Dynamic PGO (.NET 8 blog)](https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-8/#dynamic-pgo) — what it measures and why it's on by default.
+- [Thread-pool runtime config](https://learn.microsoft.com/dotnet/core/runtime-config/threading) — `MinThreads`, hill-climbing semantics.
+- [`RuntimeHostConfigurationOption` MSBuild item](https://learn.microsoft.com/dotnet/core/runtime-config/#runtimeconfigjson) — how project switches reach `runtimeconfig.json`.
+
+---
+
+## Further reading
+
+Community sources: secondary to the per-section Microsoft Learn links above,
+useful for depth, war stories, and benchmarks.
+
 - [Stephen Cleary's blog](https://blog.stephencleary.com/) — deep dives on cancellation, sync contexts, `ValueTask`.
 - [Stephen Cleary — *There Is No Thread*](https://blog.stephencleary.com/2013/11/there-is-no-thread.html) — mental model for async I/O.
 - [David Fowler — *AspNetCoreDiagnosticScenarios*](https://github.com/davidfowl/AspNetCoreDiagnosticScenarios/blob/main/AsyncGuidance.md) — async + DI gotchas, the de-facto field guide.
-- [Andrew Lock — *.NET Escapades*](https://andrewlock.net/) — Series on options pattern, configuration, hosting, source generators.
+- [Andrew Lock — *.NET Escapades*](https://andrewlock.net/) — series on options pattern, configuration, hosting, source generators.
 - [Andrew Lock — *Adding validation to strongly-typed configuration objects*](https://andrewlock.net/adding-validation-to-strongly-typed-configuration-objects-in-asp-net-core/) — validation patterns.
-- [Khalid Abuhakmeh's blog](https://khalidabuhakmeh.com/) — pragmatic .NET tips, primary constructors, records.
-- [Nick Chapsas — YouTube](https://www.youtube.com/@nickchapsas) — modern C# features and benchmarks; good for primary-ctor and `ValueTask` reality checks.
-- [Steve Gordon's blog](https://www.stevejgordon.co.uk/) — `IHttpClientFactory` internals, performance, `ChannelReader`.
+- [Steve Gordon's blog](https://www.stevejgordon.co.uk/) — `IHttpClientFactory` internals, channels, performance.
 - [Meziantou's blog](https://www.meziantou.net/) — analyzer rationale and a stream of "this is a bug" patterns; companion to `Meziantou.Analyzer`.
-- [Jimmy Bogard's blog](https://www.jimmybogard.com/) — boundary design, MediatR, results vs exceptions, value objects.
 - [Roslynator](https://github.com/dotnet/roslynator) — analyzer/refactoring catalog.
 - [Husky.NET](https://github.com/alirezanet/Husky.Net) — pre-commit hooks for .NET repos.
