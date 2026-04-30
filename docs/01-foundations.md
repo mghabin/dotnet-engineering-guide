@@ -97,6 +97,7 @@ libs; you will want it the first time prod stack-traces hit a NuGet'd package.
 - [reproducible-builds.org — Definition](https://reproducible-builds.org/docs/definition/) — vendor-neutral definition the .NET reproducible-build flags target.
 - [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) — the contract `Directory.Packages.props` versions are expected to honor.
 - [`dotnet/sdk` — repository](https://github.com/dotnet/sdk) — primary source for SDK behaviour, MSBuild SDK targets, and `global.json` semantics.
+- [`dotnet/msbuild` — repository](https://github.com/dotnet/msbuild) — primary source for MSBuild evaluation, `Directory.Build.props` discovery, and `ContinuousIntegrationBuild` handling.
 - [ECMA-334 — C# Language Specification](https://ecma-international.org/publications-and-standards/standards/ecma-334/) — the standardized language spec the C# compiler targets.
 
 > **See also**: monorepo layout and CI fan-out live in [`patterns/monorepo.md`](../patterns/monorepo.md), and the test-project conventions assumed by the `tests/` sibling layout are owned by [chapter 04 §1–§2](./04-testing.md#1-the-pyramid-and-why-most-teams-get-it-wrong).
@@ -241,16 +242,16 @@ method does.
 
 - [What's new in C# 14](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-14) — extension members, `field` keyword (GA), null-conditional assignment, partial ctors/events, first-class Span conversions, lambda parameter modifiers.
 - [What's new in C# 13](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-13) — `params` collections, `ref readonly`, partial properties, new `Lock` type, `\e` escape, implicit `^` index in initializers.
-- [`OverloadResolutionPriority` (C# 13)](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-13#overload-resolution-priority) — disambiguate new (Span-based) overloads from existing ones without breaking source.
-- [`allows ref struct` (C# 13)](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-13#allows-ref-struct) — ref struct anti-constraint and ref-struct-implements-interface.
-- [`field` keyword (C# 14)](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-14#the-field-keyword) — backing-field access in property accessors.
-- [`System.Threading.Lock` (C# 13)](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-13#new-lock-object) — when the compiler rewrites `lock` to `EnterScope()`.
+- [`OverloadResolutionPriority` proposal (`dotnet/csharplang`)](https://github.com/dotnet/csharplang/blob/main/proposals/csharp-13.0/overload-resolution-priority.md) — primary-source design for disambiguating new (Span-based) overloads from existing ones without breaking source.
+- [`allows ref struct` proposal (`dotnet/csharplang`)](https://github.com/dotnet/csharplang/blob/main/proposals/csharp-13.0/ref-struct-interfaces.md) — primary-source design for the ref-struct anti-constraint and ref-struct-implements-interface.
+- [`field` keyword proposal (`dotnet/csharplang`)](https://github.com/dotnet/csharplang/blob/main/proposals/csharp-14.0/field-keyword.md) — primary-source design for backing-field access in property accessors.
 - [Primary constructors tutorial](https://learn.microsoft.com/dotnet/csharp/whats-new/tutorials/primary-constructors) — capture semantics, when to promote to fields, struct guidance.
 - [Collection expressions](https://learn.microsoft.com/dotnet/csharp/language-reference/operators/collection-expressions) — target-typing rules.
-- [`params` collections](https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/params) — `params ReadOnlySpan<T>` and zero-alloc dispatch.
+- [`params` collections proposal (`dotnet/csharplang`)](https://github.com/dotnet/csharplang/blob/main/proposals/csharp-13.0/params-collections.md) — primary-source design for `params ReadOnlySpan<T>` and zero-alloc dispatch.
 - [Records](https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/record) — value equality, `with`, when to choose record vs class.
 - [Pattern matching](https://learn.microsoft.com/dotnet/csharp/fundamentals/functional/pattern-matching) — switch expressions, property/list patterns.
 - [`ref readonly` parameters](https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/ref#ref-readonly-parameters) — when to use over `in`.
+- [`System.Threading.Lock` proposal (`dotnet/csharplang`)](https://github.com/dotnet/csharplang/blob/main/proposals/csharp-13.0/lock-object.md) — primary-source design for the compiler rewrite of `lock` to `EnterScope()`.
 - [ECMA-335 — Common Language Infrastructure](https://ecma-international.org/publications-and-standards/standards/ecma-335/) — the standardized runtime/IL spec the language targets (vendor-neutral baseline behind the C# spec).
 - [`dotnet/csharplang` — language design notes](https://github.com/dotnet/csharplang) — primary source for C# 13/14 design discussions, LDM notes, and proposal status (the spec ships from here).
 - [`dotnet/csharplang` — C# 14 proposals](https://github.com/dotnet/csharplang/tree/main/proposals/csharp-14.0) — `field` keyword, extension members, partial constructors, first-class Span conversions: where the design is recorded.
@@ -464,7 +465,7 @@ never re-resolves).
 Add resilience via `Microsoft.Extensions.Http.Resilience` (Polly v8 under the
 hood): `.AddStandardResilienceHandler()` gets you retry+circuit-breaker+timeout
 defaults that are sensible.
-The cluster-level resilience story (Aspire `ServiceDefaults` wiring of the same handler across every outbound `HttpClient`) is owned by [chapter 06 §6 Resilience](./06-cloud-native.md#6-resilience--polly-v8-standard-pipelines-not-hand-rolled-retries); this section owns the per-client defaults, that section owns the platform default.
+The cluster-level resilience story (Aspire `ServiceDefaults` wiring of the same handler across every outbound `HttpClient`) is owned by [chapter 06 §6 Resilience](./06-cloud-native.md#6-resilience--see-ch02-7); this section owns the per-client defaults, that section owns the platform default.
 
 **Sources:**
 
@@ -477,6 +478,9 @@ The cluster-level resilience story (Aspire `ServiceDefaults` wiring of the same 
 - [`Microsoft.Extensions.Http.Resilience`](https://learn.microsoft.com/dotnet/core/resilience/http-resilience) — Polly v8 standard handlers.
 - [Steve Gordon — *HttpClientFactory in ASP.NET Core* (series)](https://www.stevejgordon.co.uk/introduction-to-httpclientfactory-aspnetcore) — community-canonical internals walkthrough: handler pooling, lifetimes, the `LogicalHandler`/`PrimaryHandler` chain.
 - [`dotnet/runtime` — `Microsoft.Extensions.DependencyInjection` source](https://github.com/dotnet/runtime/tree/main/src/libraries/Microsoft.Extensions.DependencyInjection) — primary source for DI lifetime semantics, scope validation, and keyed services.
+- [`dotnet/extensions` — `Microsoft.Extensions.Http.Resilience` source](https://github.com/dotnet/extensions/tree/main/src/Libraries/Microsoft.Extensions.Http.Resilience) — primary source for the standard resilience handler implementation.
+- [Polly v8 documentation](https://www.pollydocs.org/) — strategy/pipeline reference and migration notes for the v7→v8 retry/circuit-breaker/timeout shift.
+- [David Fowler — *AspNetCoreDiagnosticScenarios*](https://github.com/davidfowl/AspNetCoreDiagnosticScenarios/blob/main/AsyncGuidance.md) — community-canonical DI + async pitfalls (captive dependencies, sync-over-async in handlers).
 
 ---
 
@@ -530,6 +534,7 @@ smell that defeats validation, defeats reload, and defeats testability.
 - [Safe storage of secrets in development](https://learn.microsoft.com/aspnet/core/security/app-secrets) — `dotnet user-secrets`.
 - [Andrew Lock — *Adding validation to strongly-typed configuration objects*](https://andrewlock.net/adding-validation-to-strongly-typed-configuration-objects-in-asp-net-core/) — community-canonical walk-through of `IValidateOptions<T>`, `[OptionsValidator]`, and `ValidateOnStart` patterns.
 - [`[OptionsValidator]` source generator — devblogs](https://devblogs.microsoft.com/dotnet/announcing-dotnet-8-rc1/#optionsvalidator-source-generator) — the .NET team announcement and rationale for compile-time options validation.
+- [`dotnet/runtime` — `Microsoft.Extensions.Options.SourceGeneration`](https://github.com/dotnet/runtime/tree/main/src/libraries/Microsoft.Extensions.Options/gen) — primary-source generator implementation behind `[OptionsValidator]`.
 
 ---
 
@@ -563,6 +568,8 @@ always `using`.
 - [Implement `IAsyncDisposable`](https://learn.microsoft.com/dotnet/standard/garbage-collection/implementing-disposeasync) — `await using` rules.
 - [`CancellationTokenSource`](https://learn.microsoft.com/dotnet/api/system.threading.cancellationtokensource) — disposal of linked sources.
 - [Stephen Toub — *DisposeAsync* notes (devblogs)](https://devblogs.microsoft.com/dotnet/configureawait-faq/#what-about-asynchronous-disposal) — async disposal semantics and `await using` rules from the libraries lead.
+- [`dotnet/runtime` — `IAsyncDisposable` source](https://github.com/dotnet/runtime/blob/main/src/libraries/System.Private.CoreLib/src/System/IAsyncDisposable.cs) — primary-source contract for `DisposeAsync` ordering and `ValueTask` shape.
+- [David Fowler — *AspNetCoreDiagnosticScenarios* (Async guidance: disposal)](https://github.com/davidfowl/AspNetCoreDiagnosticScenarios/blob/main/AsyncGuidance.md#dispose-of-cancellationtokensources-used-for-timeouts) — community-canonical pitfalls around `CancellationTokenSource` and async disposal.
 
 ---
 
@@ -668,9 +675,10 @@ This is the canonical C# 14 replacement for the `private string _name; public st
 - [`field` keyword](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-14#the-field-keyword) — validating accessors without a hand-rolled backing field.
 - [`System.Collections.Immutable`](https://learn.microsoft.com/dotnet/api/system.collections.immutable) — `ImmutableArray<T>`, `ImmutableList<T>`.
 - [Choosing between class and struct](https://learn.microsoft.com/dotnet/standard/design-guidelines/choosing-between-class-and-struct) — when value semantics fit.
-- [Eric Lippert — *Immutability in C#* (series)](https://learn.microsoft.com/archive/blogs/ericlippert/immutability-in-c-part-one-kinds-of-immutability) — taxonomy of write-once / shallow / deep / observational immutability; shapes the rule that `IReadOnlyList<T>` is a view, not a guarantee.
+- [Eric Lippert — *Immutability in C#* (series)](https://ericlippert.com/2007/10/04/immutability-in-c-part-one-kinds-of-immutability/) — taxonomy of write-once / shallow / deep / observational immutability; shapes the rule that `IReadOnlyList<T>` is a view, not a guarantee.
 - [`dotnet/csharplang` — Records proposal](https://github.com/dotnet/csharplang/blob/main/proposals/csharp-9.0/records.md) — primary-source design notes for `record` value-equality semantics referenced throughout this section.
 - [Mads Torgersen — *C# 9 Records* (devblogs)](https://devblogs.microsoft.com/dotnet/welcome-to-c-9-0/) — language-team announcement of records and `init` accessors.
+- [`dotnet/runtime` — `System.Collections.Immutable` source](https://github.com/dotnet/runtime/tree/main/src/libraries/System.Collections.Immutable) — primary source for the immutable-collections implementation and structural-sharing trade-offs.
 
 ---
 
@@ -725,6 +733,7 @@ runs in the IDE — every dep becomes a load-order hazard).
 - [`dotnet/runtime` — `LoggerMessage` source generator](https://github.com/dotnet/runtime/tree/main/src/libraries/Microsoft.Extensions.Logging.Abstractions/gen) — primary-source generator implementation behind the high-perf logging guidance.
 - [Source generators cookbook (`dotnet/roslyn`)](https://github.com/dotnet/roslyn/blob/main/docs/features/source-generators.cookbook.md) — primary-source authoring guide.
 - [Source generators overview](https://learn.microsoft.com/dotnet/csharp/roslyn-sdk/source-generators-overview) — authoring guidance.
+- [Andrew Lock — *Creating a source generator* (series)](https://andrewlock.net/creating-a-source-generator-part-1-creating-an-incremental-source-generator/) — community-canonical walkthrough of incremental source generators, the model the in-box `LoggerMessage` / options / JSON generators follow.
 
 ---
 
@@ -885,6 +894,9 @@ next to the csproj; do not let ops set GC policy in the deploy pipeline.
 - [PGO improvements: type checks and casts (.NET 9)](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-9/runtime#pgo-improvements-type-checks-and-casts) — what Dynamic PGO learned in .NET 9.
 - [Thread-pool runtime config](https://learn.microsoft.com/dotnet/core/runtime-config/threading) — `MinThreads`, hill-climbing semantics.
 - [`RuntimeHostConfigurationOption` MSBuild item](https://learn.microsoft.com/dotnet/core/runtime-config/#specify-a-configuration-value) — how project switches reach `runtimeconfig.json`.
+- [Maoni Stephens — *Maoni's WebLog* (GC architect)](https://devblogs.microsoft.com/dotnet/author/maoni/) — primary-source posts from the .NET GC architect on Server GC, regions, DATAS, and heap-budget heuristics.
+- [`dotnet/runtime` — DATAS design](https://github.com/dotnet/runtime/blob/main/docs/design/features/datas.md) — primary-source design note for Dynamic Adaptation To Application Sizes.
+- [`dotnet/runtime` — Threadpool design](https://github.com/dotnet/runtime/tree/main/src/libraries/System.Private.CoreLib/src/System/Threading) — primary-source thread-pool implementation behind the hill-climbing semantics referenced above.
 
 ---
 
