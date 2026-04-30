@@ -1,0 +1,43 @@
+name: pinact
+
+# Validates every third-party GitHub Action used in this repo is pinned to a
+# *commit SHA* (not a mutable tag, and not an annotated-tag-object SHA either).
+# Replaces the previous bespoke /tmp/pin.py script that mishandled annotated
+# tags and produced unverifiable SHAs (see PR #79 follow-up).
+#
+# Tool: https://github.com/suzuki-shunsuke/pinact (industry standard).
+# Action: https://github.com/suzuki-shunsuke/pinact-action
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '.github/actions/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+      - '.github/actions/**'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify Action pins
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: suzuki-shunsuke/pinact-action@cf51507d80d4d6522a07348e3d58790290eaf0b6 # v2.0.0
+        with:
+          # Validate-only: do not auto-push fix commits.
+          # PRs from same-repo branches don't get contents:write on GITHUB_TOKEN,
+          # and on main, failing CI loudly is preferable to a silent "pinact" bot
+          # commit (author should run `pinact run --fix` locally instead).
+          skip_push: "true"
+          # --check: fail if any action is unpinned (mutable ref).
+          # --verify: fail if pinned SHA does not match the version comment
+          #   (catches the annotated-tag-object-SHA bug fixed in PR #87).
+          pinact_opts: --check --verify
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

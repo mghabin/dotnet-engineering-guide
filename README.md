@@ -75,4 +75,4 @@ not — see [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 ## License
 
-[MIT](./LICENSE) © 2026 mghabin
+[MIT](./LICENSE) © 2026 Mohammad Ghabin

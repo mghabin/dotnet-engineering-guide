@@ -5,9 +5,7 @@ Curated source list backing [`monorepo.md`](./monorepo.md),
 
 ---
 
-
-
-### Microsoft — Docs
+## Microsoft — Docs
 
 - [.NET Application Architecture Guides (hub)](https://dotnet.microsoft.com/learn/dotnet/architecture-guides)
 - [.NET Microservices: Architecture for Containerized .NET Applications (eBook)](https://learn.microsoft.com/dotnet/architecture/microservices/)
@@ -43,7 +41,7 @@ Curated source list backing [`monorepo.md`](./monorepo.md),
 - [App secrets in development](https://learn.microsoft.com/aspnet/core/security/app-secrets)
 - [`dotnet test` GitHub Action](https://learn.microsoft.com/dotnet/devops/dotnet-test-github-action)
 
-### Microsoft — Team blogs
+## Microsoft — Team blogs
 
 - [.NET Blog — built-in container support](https://devblogs.microsoft.com/dotnet/announcing-builtin-container-support-for-the-dotnet-sdk/)
 - [.NET Blog — `ValueTask` whys, whats, whens (Stephen Toub)](https://devblogs.microsoft.com/dotnet/understanding-the-whys-whats-and-whens-of-valuetask/)
@@ -53,7 +51,7 @@ Curated source list backing [`monorepo.md`](./monorepo.md),
 - [Donovan Brown — DevOps on .NET](https://www.donovanbrown.com/)
 - [Abel Wang — Azure DevOps + .NET (archive)](https://devblogs.microsoft.com/devops/author/abelwang/)
 
-### Community thought-leaders
+## Community thought-leaders
 
 - [Stephen Cleary — *Don't Block on Async Code*](https://blog.stephencleary.com/2012/07/dont-block-on-async-code.html)
 - [Stephen Cleary — *Async/Await Best Practices*](https://learn.microsoft.com/archive/msdn-magazine/2013/march/async-await-best-practices-in-asynchronous-programming)
@@ -85,7 +83,7 @@ Curated source list backing [`monorepo.md`](./monorepo.md),
 - [The Pragmatic Engineer — Monorepo and Microservices](https://blog.pragmaticengineer.com/monorepo-vs-multi-repo/)
 - [ThoughtWorks Tech Radar — Monorepo with a suitable build system](https://www.thoughtworks.com/radar/techniques/monorepo-with-a-suitable-build-system)
 
-### Tooling
+## Tooling
 
 - [NuGet Home (specs, issues)](https://github.com/NuGet/Home)
 - [MSBuild docs](https://learn.microsoft.com/visualstudio/msbuild/msbuild)
@@ -116,7 +114,7 @@ Curated source list backing [`monorepo.md`](./monorepo.md),
 - [Sprache](https://github.com/sprache/Sprache)
 - [Husky.Net](https://github.com/alirezanet/Husky.Net)
 
-### Talks (NDC / .NET Conf)
+## Talks (NDC / .NET Conf)
 
 - [NDC Conferences — YouTube channel](https://www.youtube.com/@NDC)
 - [.NET Conf — YouTube playlists](https://www.youtube.com/@dotnet/playlists)

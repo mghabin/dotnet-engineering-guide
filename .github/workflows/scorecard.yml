@@ -1,0 +1,55 @@
+name: scorecard
+# OpenSSF Scorecard supply-chain hygiene check.
+# Runs weekly + on every push to main; uploads results to:
+#   - GitHub Security tab (SARIF)
+#   - api.securityscorecards.dev (so the badge in README resolves)
+# Docs: https://github.com/ossf/scorecard-action
+
+on:
+  branch_protection_rule:
+  schedule:
+    - cron: '17 4 * * 2'   # 04:17 UTC every Tuesday
+  push:
+    branches: [main]
+
+permissions: read-all
+
+concurrency:
+  group: scorecard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      # Required for SARIF upload to code-scanning.
+      security-events: write
+      # Required for the OIDC publish to securityscorecards.dev.
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Publish results back to securityscorecards.dev (powers the public badge).
+          publish_results: true
+
+      # Keep raw results around for 5 days so a failed run can be inspected
+      # without re-running the analysis (which costs API calls).
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload to code-scanning
+        uses: github/codeql-action/upload-sarif@48ab28a6f5dbc2a99bf1e0131198dd8f1df78169 # v3.28.0
+        with:
+          sarif_file: results.sarif
