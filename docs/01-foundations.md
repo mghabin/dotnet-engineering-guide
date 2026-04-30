@@ -1,4 +1,4 @@
-# .NET 10 / C# 13 — Foundations
+# .NET 10 / C# 14 — Foundations
 
 Opinionated, cross-cutting defaults for a .NET 10 codebase. Everything here is
 do-this-by-default; deviations should be justified in code review. ASP.NET Core,
@@ -90,7 +90,7 @@ libs; you will want it the first time prod stack-traces hit a NuGet'd package.
 
 ---
 
-## 2. Language (C# 13)
+## 2. Language (C# 14)
 
 **File-scoped namespaces, always.** One namespace per file, declared with
 `namespace Foo.Bar;`. Saves an indent level and is enforced via
@@ -168,6 +168,46 @@ beat hand-rolled `new List<T> { ... }` for many cases. Combine with
 `params ReadOnlySpan<T>` when the values are consumed eagerly — callers using
 collection expressions get zero-alloc dispatch.
 
+**`[OverloadResolutionPriority]` (C# 13) for adding faster overloads.**
+When you introduce a `params ReadOnlySpan<T>` (or otherwise more-efficient)
+overload alongside an existing API, decorate the new one with
+`[OverloadResolutionPriority(1)]` so the compiler prefers it without breaking
+existing source.
+This is the supported way to evolve hot-path library APIs without a major-version churn.
+
+**`allows ref struct` anti-constraint (C# 13).** Generic helpers that should
+accept `Span<T>` / `ReadOnlySpan<T>` (or any other ref struct) must declare
+`where T : allows ref struct`.
+C# 13 also lets ref structs implement interfaces, which is what unblocks
+generic algorithms over spans.
+
+**C# 14 highlights.** C# 14 ships with .NET 10; the points below are the
+new defaults this chapter relies on.
+
+- **Extension members** — `extension` blocks let you add instance and static
+  extension *properties* and operators (not just methods) on a type you don't
+  own.
+  Use them for read-only projections (`source.IsEmpty`, `request.IsAuthenticated`)
+  on types you can't modify; do not reach for them to add behavior to types
+  you control — that's a regular member.
+- **`field` keyword (GA).** Inside a property accessor, `field` refers to
+  the compiler-synthesized backing field.
+  Replaces hand-rolled `_name` fields for properties that need a non-trivial
+  setter (validation, normalization), and pairs naturally with the §9
+  immutability guidance.
+- **Null-conditional assignment.** `customer?.Order = newOrder;` no-ops when
+  `customer` is null instead of throwing.
+  Symmetric with `?.` reads.
+- **Partial instance constructors and partial events.** Source generators can
+  now contribute constructor and event implementations alongside partial
+  methods/properties.
+- **First-class implicit `Span<T>` / `ReadOnlySpan<T>` conversions.** Arrays,
+  strings, and `List<T>` (via `CollectionsMarshal.AsSpan`) flow into span
+  parameters without an explicit cast.
+- **Lambda parameter modifiers.** `ref`/`in`/`out`/`scoped` are allowed on
+  simple (un-typed) lambda parameters: `(ref int x) => x++` no longer requires
+  spelling out the parameter type.
+
 **`ref readonly` vs `in`.** `in` is "I won't mutate it, copy is fine if I
 need"; `ref readonly` is "I want a non-defensive-copy alias and I promise I
 won't mutate." Use `ref readonly` parameters for large readonly structs you
@@ -186,7 +226,11 @@ method does.
 
 **Sources:**
 
-- [What's new in C# 13](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-13) — `params` collections, `ref readonly`, partial properties, new `Lock` type.
+- [What's new in C# 14](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-14) — extension members, `field` keyword (GA), null-conditional assignment, partial ctors/events, first-class Span conversions, lambda parameter modifiers.
+- [What's new in C# 13](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-13) — `params` collections, `ref readonly`, partial properties, new `Lock` type, `\e` escape, implicit `^` index in initializers.
+- [`OverloadResolutionPriority` (C# 13)](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-13#overload-resolution-priority) — disambiguate new (Span-based) overloads from existing ones without breaking source.
+- [`allows ref struct` (C# 13)](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-13#allows-ref-struct) — ref struct anti-constraint and ref-struct-implements-interface.
+- [`field` keyword (C# 14)](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-14#the-field-keyword) — backing-field access in property accessors.
 - [`System.Threading.Lock` (C# 13)](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-13#new-lock-object) — when the compiler rewrites `lock` to `EnterScope()`.
 - [Primary constructors tutorial](https://learn.microsoft.com/dotnet/csharp/whats-new/tutorials/primary-constructors) — capture semantics, when to promote to fields, struct guidance.
 - [Collection expressions](https://learn.microsoft.com/dotnet/csharp/language-reference/operators/collection-expressions) — target-typing rules.
@@ -218,6 +262,10 @@ the analyzer can't see it. Anywhere else, fix the contract.
 - `[MemberNotNullWhen(true, nameof(_x))]` on `IsInitialized`-style flags.
 - `[DoesNotReturn]` / `[DoesNotReturnIf(false)]` on guard helpers — flow
   analysis treats subsequent reads as non-null.
+- `[StringSyntax(StringSyntaxAttribute.Json)]` (and `Regex`, `DateTimeFormat`,
+  etc.) on `string` parameters — gives IDEs and analyzers the hint to
+  colorize and validate the literal payload at the call site.
+  This is an analyzer-facing metadata attribute, not a source generator.
 
 **Public API contracts.** Library `public`/`protected` surface must have
 deliberate nullability. `string?` parameters mean "null is meaningful";
@@ -240,6 +288,7 @@ amnesty.
 - [Nullable reference types](https://learn.microsoft.com/dotnet/csharp/nullable-references) — enabling, suppression rules.
 - [Nullable static-analysis attributes](https://learn.microsoft.com/dotnet/csharp/language-reference/attributes/nullable-analysis) — `NotNullWhen`, `MemberNotNull`, `DoesNotReturn`, etc.
 - [`ArgumentNullException.ThrowIfNull`](https://learn.microsoft.com/dotnet/api/system.argumentnullexception.throwifnull) — annotated guard; feeds flow analysis.
+- [`StringSyntaxAttribute`](https://learn.microsoft.com/dotnet/api/system.diagnostics.codeanalysis.stringsyntaxattribute) — string-literal hints for analyzers/IDEs.
 
 ---
 
@@ -324,7 +373,8 @@ singleton — the captured state is the lifetime of the singleton.
 - [Generate and consume async streams](https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/generate-consume-asynchronous-stream) — `[EnumeratorCancellation]` + `WithCancellation` pairing.
 - [`System.Threading.Channels`](https://learn.microsoft.com/dotnet/core/extensions/channels) — producer/consumer primitives.
 - [`Parallel.ForEachAsync`](https://learn.microsoft.com/dotnet/api/system.threading.tasks.parallel.foreachasync) — bounded async iteration.
-- [Stephen Cleary — *Async/Await Best Practices*](https://learn.microsoft.com/archive/msdn-magazine/2013/march/async-await-best-practices-in-asynchronous-programming) — `async void` exception flow, sync-over-async.
+- [Stephen Cleary — *Async and Await*](https://blog.stephencleary.com/2012/02/async-and-await.html) — canonical primer; `async void` exception flow.
+- [Stephen Cleary — *Don't Block on Async Code*](https://blog.stephencleary.com/2012/07/dont-block-on-async-code.html) — sync-over-async deadlock anatomy.
 
 ---
 
@@ -568,9 +618,28 @@ the cost of allocation per change dominates. Be explicit: name the type
 ids) that's exactly right. For entities with identity, override or write a
 class — never let two `Customer` records with the same fields be `==`.
 
+**`field` keyword for validating accessors (C# 14).** When an immutable
+property needs a non-trivial setter (null-check, normalization, trimming),
+prefer the `field` contextual keyword over a hand-rolled backing field — it
+keeps the property syntactically auto and makes the validation local:
+
+```csharp
+public sealed record Customer
+{
+    public string Name
+    {
+        get;
+        init => field = value?.Trim() ?? throw new ArgumentNullException(nameof(value));
+    }
+}
+```
+
+This is the canonical C# 14 replacement for the `private string _name; public string Name { get => _name; init => _name = ...; }` pattern.
+
 **Sources:**
 
 - [Records](https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/record) — value equality, `with` expressions.
+- [`field` keyword](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-14#the-field-keyword) — validating accessors without a hand-rolled backing field.
 - [`System.Collections.Immutable`](https://learn.microsoft.com/dotnet/api/system.collections.immutable) — `ImmutableArray<T>`, `ImmutableList<T>`.
 - [Choosing between class and struct](https://learn.microsoft.com/dotnet/standard/design-guidelines/choosing-between-class-and-struct) — when value semantics fit.
 
@@ -601,11 +670,16 @@ default; fall back to reflection only when shape isn't statically knowable.
   7+). Removes per-request reflection; you get it for free as long as your
   endpoint signatures are static. Don't dynamically build endpoints if you
   can express them statically.
-- **`StringSyntax`** (`[StringSyntax(StringSyntaxAttribute.Json)]`,
-  `Regex`, etc.) gives IDEs and analyzers the hint they need to colorize and
-  validate string literal payloads. *Interceptors are an experimental
-  preview-flagged language feature, not a current C# 13 default — treat them
-  as ecosystem-specific and don't ship them in shared libraries.*
+
+`StringSyntaxAttribute` is *not* a source generator — it's a metadata attribute
+consumed by analyzers/IDEs; see §3.
+
+**Interceptors** stabilized in the C# compiler shipped with the .NET 9 SDK
+9.0.2xx and later (they were experimental in .NET 8).
+They are a source-generator-only feature: the file-and-position encoding is
+deliberately opaque, so don't ship interceptors from shared libraries that
+non-generator consumers compile against — generate them inside the consumer's
+project.
 
 If you write your own generator, ship it as a separate analyzer project with
 `<IsRoslynComponent>true</IsRoslynComponent>`, target
@@ -615,11 +689,10 @@ runs in the IDE — every dep becomes a load-order hazard).
 **Sources:**
 
 - [`LoggerMessage` source generator](https://learn.microsoft.com/dotnet/core/extensions/logger-message-generator) — high-perf logging.
-- [Logging guidance for library authors](https://learn.microsoft.com/dotnet/core/extensions/logging-library-authors) — when to call `IsEnabled` to elide argument evaluation.
+- [LoggerMessage — log method constraints](https://learn.microsoft.com/dotnet/core/extensions/logger-message-generator#log-method-constraints) — when the generator elides vs. evaluates arguments; rationale for `IsEnabled` guards.
 - [`System.Text.Json` source generation](https://learn.microsoft.com/dotnet/standard/serialization/system-text-json/source-generation) — AOT, perf, startup.
 - [`GeneratedRegex`](https://learn.microsoft.com/dotnet/standard/base-types/regular-expression-source-generators) — compile-time regex.
-- [`StringSyntaxAttribute`](https://learn.microsoft.com/dotnet/api/system.diagnostics.codeanalysis.stringsyntaxattribute) — string-literal hints for analyzers/IDEs.
-- [What's new in C# 13](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-13) — confirms interceptors are not a shipped C# 13 feature.
+- [Roslyn interceptors feature doc](https://github.com/dotnet/roslyn/blob/main/docs/features/interceptors.md) — current status, encoding, generator-only guidance.
 - [Source generators overview](https://learn.microsoft.com/dotnet/csharp/roslyn-sdk/source-generators-overview) — authoring guidance.
 
 ---
@@ -670,6 +743,12 @@ debug a NuGet'd library straight to the commit it was built from.
 `-p:DebugType=portable` and pushes `.snupkg` symbols separately to your symbol
 server (or NuGet.org's).
 
+**`dotnet test` and Microsoft.Testing.Platform.** The .NET 10 SDK ships
+first-class Microsoft.Testing.Platform (MTP) support in `dotnet test` alongside
+the legacy VSTest pipeline.
+The testing chapter covers when to opt in; just don't bake VSTest-only
+assumptions into CI templates you author today.
+
 **Sources:**
 
 - [Code analysis in .NET](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/overview) — `AnalysisMode`, `AnalysisLevel`, `EnforceCodeStyleInBuild`.
@@ -677,6 +756,7 @@ server (or NuGet.org's).
 - [NuGet package lock files](https://learn.microsoft.com/nuget/consume-packages/package-references-in-project-files#locking-dependencies) — `--locked-mode`, `packages.lock.json`.
 - [NuGet audit (`<NuGetAudit>`)](https://learn.microsoft.com/nuget/concepts/auditing-packages) — vulnerability scanning at restore.
 - [Reproducible builds (.NET)](https://github.com/dotnet/reproducible-builds) — repo and guidance.
+- [.NET 10 SDK — what's new](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-10/sdk) — `dotnet test` and Microsoft.Testing.Platform.
 
 ---
 
@@ -701,6 +781,23 @@ apps and worker services, opt in explicitly:
 Server GC uses one heap and one GC thread per logical core, which is the right
 default for throughput-bound services. Workstation GC is the default for
 console apps and is appropriate for short-lived CLIs and desktop processes.
+
+**DATAS is on by default in .NET 9+ Server GC.** Dynamic Adaptation To
+Application Sizes (opt-in in .NET 8, default in .NET 9) sizes the heap to the
+amount of long-lived data instead of pre-committing one heap per core.
+The Server GC starts with a single heap and grows up to the core count as
+allocation pressure justifies it; on bursty workloads the working-set win is
+~80% on TechEmpower with a 2–3% throughput cost.
+Leave it on by default.
+If you measure a throughput regression that matters, opt out for that process
+with `<ConfigurationProperties>` in the csproj or
+`System.GC.DynamicAdaptationMode = 0` in `runtimeconfig.json` — never as a
+blanket cluster-wide env var.
+
+**CET shadow stack on Windows.** Control-flow Enforcement Technology
+(hardware-enforced shadow stack against ROP) is enabled by default for .NET 9+
+apps on Windows.
+Cost is small; do not opt out without a documented reason.
 
 **Tiered compilation and Dynamic PGO are on by default — leave them on.**
 Tiered compilation lets methods start at quick-JIT and re-JIT to optimized
@@ -743,11 +840,14 @@ next to the csproj; do not let ops set GC policy in the deploy pipeline.
 **Sources:**
 
 - [Runtime configuration options](https://learn.microsoft.com/dotnet/core/runtime-config/) — index of every supported knob.
-- [GC configuration options](https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector) — Server vs Workstation, concurrent, heap limits.
+- [GC configuration options](https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector) — Server vs Workstation, concurrent, heap limits, `ServerGarbageCollection`, DATAS knobs.
+- [DATAS — Dynamic Adaptation To Application Sizes](https://learn.microsoft.com/dotnet/standard/garbage-collection/datas) — adaptive heap sizing in .NET 9+ Server GC.
+- [CET — Control-flow Enforcement Technology (.NET 9)](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-9/runtime#control-flow-enforcement-technology) — default-on shadow stack on Windows.
 - [Tiered compilation](https://learn.microsoft.com/dotnet/core/runtime-config/compilation) — how tiers and quick-JIT interact.
-- [Dynamic PGO (.NET 8 blog)](https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-8/#dynamic-pgo) — what it measures and why it's on by default.
+- [Performance improvements in .NET 10 — Stephen Toub](https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-10/) — current canonical perf post; supersedes the .NET 8 link for Dynamic PGO.
+- [PGO improvements: type checks and casts (.NET 9)](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-9/runtime#pgo-improvements-type-checks-and-casts) — what Dynamic PGO learned in .NET 9.
 - [Thread-pool runtime config](https://learn.microsoft.com/dotnet/core/runtime-config/threading) — `MinThreads`, hill-climbing semantics.
-- [`RuntimeHostConfigurationOption` MSBuild item](https://learn.microsoft.com/dotnet/core/runtime-config/#runtimeconfigjson) — how project switches reach `runtimeconfig.json`.
+- [`RuntimeHostConfigurationOption` MSBuild item](https://learn.microsoft.com/dotnet/core/runtime-config/#specify-a-configuration-value) — how project switches reach `runtimeconfig.json`.
 
 ---
 
