@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD024 -->
 # Coverage map — who owns what across the .NET 10 guide
 
 Companion to [`README.md`](./README.md) and [`checklist.md`](./checklist.md).
