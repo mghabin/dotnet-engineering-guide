@@ -92,6 +92,7 @@ Use keyed services when the key is a stable, small set known at composition time
 
 Sources:
 - [Validation in Minimal APIs (.NET 10)](https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis/min-api-validation).
+- [FluentValidation — ASP.NET Core integration](https://docs.fluentvalidation.net/en/latest/aspnet.html) — auto-validation in `FluentValidation.AspNetCore` is deprecated; invoke validators yourself.
 - [Model binding](https://learn.microsoft.com/aspnet/core/mvc/models/model-binding) and [`[AsParameters]`](https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis/parameter-binding#parameter-binding-for-argument-lists-with-asparameters).
 - [Keyed DI services](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection#keyed-services) — `[FromKeyedServices]`.
 
@@ -100,6 +101,9 @@ Sources:
 ## 3. ProblemDetails & Error Handling
 
 Rule: **every app-generated 4xx/5xx is `application/problem+json`** (RFC 9457, which obsoletes RFC 7807). The middleware below covers exception-driven and status-code-driven responses; auth challenges (401/403 from the JWT bearer handler) need explicit handling — see "Auth challenges" below — because the bearer handler emits its own `WWW-Authenticate` response that you must preserve.
+
+The in-box `Microsoft.AspNetCore.Mvc.ProblemDetails` type predates 9457, and the wire format is byte-compatible with 7807 — same members (`type`, `title`, `status`, `detail`, `instance`), same `application/problem+json` media type, no new package.
+Only the `type` URI semantics tightened: maintain a per-org problem-type catalog at a stable URL (e.g. `https://errors.example.com/orders/concurrency-conflict`) and never use the RFC URL itself as `type` for app errors — it conveys no domain meaning and clients that branch on `type` will collide across unrelated errors.
 
 ```csharp
 builder.Services.AddProblemDetails(o =>
@@ -167,7 +171,8 @@ builder.Services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSch
 For step-up / CAE flows, use Microsoft.Identity.Web's `ReplyForbiddenWithWwwAuthenticateHeaderAsync` so the `claims=` parameter is included; bare `Forbid()` will not carry it.
 
 Sources:
-- [RFC 9457 — Problem Details for HTTP APIs](https://datatracker.ietf.org/doc/html/rfc9457) (obsoletes RFC 7807).
+- [RFC 9457 — Problem Details for HTTP APIs](https://datatracker.ietf.org/doc/html/rfc9457) (obsoletes RFC 7807; wire-format compatible).
+- [RFC 9457 §4 — defining new problem types](https://datatracker.ietf.org/doc/html/rfc9457#section-4) — `type` URI conventions and registry guidance.
 - [Handle errors — `IExceptionHandler` and `AddProblemDetails`](https://learn.microsoft.com/aspnet/core/fundamentals/error-handling).
 - [JWT bearer events](https://learn.microsoft.com/dotnet/api/microsoft.aspnetcore.authentication.jwtbearer.jwtbearerevents) — preserving `WWW-Authenticate`.
 - [Microsoft.Identity.Web claims challenges / CAE](https://learn.microsoft.com/entra/identity-platform/claims-challenge).
@@ -195,45 +200,78 @@ var v2 = app.MapGroup("/api/v{version:apiVersion}").HasApiVersion(2.0);
 
 Opinions:
 - **URL segment versioning** (`/v1/...`) is the least surprising. Header/media-type are clever but break caches, browsers, and CDN rules.
-- Mark deprecated versions via `.HasDeprecatedApiVersion(1.0)`. This sets `api-deprecated-versions` automatically (when `ReportApiVersions = true`), but **`Sunset` headers do not flow automatically** — register an explicit sunset policy:
+- Mark deprecated versions via `.HasDeprecatedApiVersion(1.0)`. This sets `api-deprecated-versions` automatically (when `ReportApiVersions = true`), but **`Sunset` headers do not flow automatically** — register an explicit sunset policy inside `AddApiVersioning` via `options.Policies.Sunset(...)` (the supported `Asp.Versioning.Http` API surface; there is no `AddSunsetPolicyBuilder()` extension):
 
 ```csharp
-builder.Services.AddApiVersioning(o => { /* … */ })
-    .AddApiExplorer(/* … */);
-
-builder.Services.AddSunsetPolicyBuilder()
-    .Map(new ApiVersion(1, 0))
+builder.Services.AddApiVersioning(o =>
+{
+    o.Policies.Sunset(new ApiVersion(1, 0))
         .Effective(DateTimeOffset.Parse("2026-06-30T00:00:00Z"))
-        .Link("https://docs.example.com/api/v1-sunset").Title("Migration guide");
+        .Link("https://docs.example.com/api/v1-sunset")
+            .Title("Migration guide");
+    // …existing options…
+}).AddApiExplorer(/* … */);
 ```
 
 - Don't version on minor patches; only breaking contract changes justify a new major.
 
 Sources:
 - [Asp.Versioning wiki — versioning policies](https://github.com/dotnet/aspnet-api-versioning/wiki).
-- [Asp.Versioning sunset policies](https://github.com/dotnet/aspnet-api-versioning/wiki/Sunset-Policy).
+- [Asp.Versioning wiki — Sunset Policy](https://github.com/dotnet/aspnet-api-versioning/wiki/Sunset-Policy) — `ApiVersioningOptions.Policies.Sunset(...)`.
+- [`Asp.Versioning.Http` on NuGet](https://www.nuget.org/packages/Asp.Versioning.Http) — current package surface.
+- [`Asp.Versioning.Http.OpenApi` on NuGet](https://www.nuget.org/packages/Asp.Versioning.Http.OpenApi) — bridge into `Microsoft.AspNetCore.OpenApi` document-per-version.
 - [RFC 8594 — the Sunset HTTP header](https://datatracker.ietf.org/doc/html/rfc8594).
 
 ---
 
 ## 5. OpenAPI
 
-**`Microsoft.AspNetCore.OpenApi`** is built-in (.NET 9+) and is the default in .NET 10; **Swashbuckle** is no longer in the `webapi` template. Swashbuckle still works but is community-maintained and lags OpenAPI 3.1 support.
+**`Microsoft.AspNetCore.OpenApi`** has been the default since **.NET 9** — Swashbuckle was removed from the `dotnet new webapi` template in 9.0, not 10.0.
+It emits **OpenAPI 3.1 / JSON Schema 2020-12 by default starting in .NET 9** (`OpenApiOptions.OpenApiVersion` overrides); .NET 10 adds YAML serving (`MapOpenApi("/openapi/{documentName}.yaml")`).
+Swashbuckle still works but is community-maintained and lags 3.1.
 
 ```csharp
 builder.Services.AddOpenApi("v1", o =>
 {
-    o.AddDocumentTransformer<SecuritySchemeTransformer>();
+    o.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
     o.AddOperationTransformer<AddCorrelationIdHeaderTransformer>();
 });
+builder.Services.AddOpenApi("v2");        // one document per major version
 
-app.MapOpenApi();         // /openapi/v1.json  (also YAML in .NET 10)
+app.MapOpenApi();                          // /openapi/v1.json, /openapi/v2.json
+app.MapOpenApi("/openapi/{documentName}.yaml");   // .NET 10
 ```
 
-- .NET 10 emits **OpenAPI 3.1** by default (JSON Schema 2020-12), YAML supported.
 - Customize via `IOpenApiDocumentTransformer` / `IOpenApiOperationTransformer` / `IOpenApiSchemaTransformer`. No more `ISchemaFilter` gymnastics.
 - For the UI, pick **[Scalar](https://scalar.com/)** (`Scalar.AspNetCore`) — it's what the Microsoft samples now show. Use Swagger UI only if you have established tooling around it.
 - Don't commit generated `.json`/`.yaml` to the repo unless it's the contract (contract-first). Let CI publish it.
+
+**Bearer security scheme transformer.** The most common Swashbuckle migration question is "where did the Authorize button go?" — `AddOpenApi` has no built-in bearer scheme; you add one via a document transformer that probes the registered authentication schemes:
+
+```csharp
+internal sealed class BearerSecuritySchemeTransformer(IAuthenticationSchemeProvider schemes)
+    : IOpenApiDocumentTransformer
+{
+    public async Task TransformAsync(OpenApiDocument doc, OpenApiDocumentTransformerContext _, CancellationToken ct)
+    {
+        if (!(await schemes.GetAllSchemesAsync()).Any(s => s.Name == JwtBearerDefaults.AuthenticationScheme))
+            return;
+        doc.Components ??= new OpenApiComponents();
+        doc.Components.SecuritySchemes["Bearer"] = new OpenApiSecurityScheme
+        {
+            Type = SecuritySchemeType.Http, Scheme = "bearer", BearerFormat = "JWT",
+            In = ParameterLocation.Header, Description = "RFC 6750 bearer token"
+        };
+        doc.SecurityRequirements.Add(new OpenApiSecurityRequirement
+        {
+            [new OpenApiSecurityScheme { Reference = new() { Type = ReferenceType.SecurityScheme, Id = "Bearer" } }] = []
+        });
+    }
+}
+```
+
+**Versioned documents.** Pair each `AddApiVersioning(...).AddApiExplorer()` major version with its own `AddOpenApi("vN")` and a one-line operation transformer that filters `ApiDescription.GroupName == documentName` so `MapGroup("/api/v{version:apiVersion}")` endpoints land in the right document.
+The `Asp.Versioning.Http.OpenApi` package supplies the `IApiDescriptionProvider` glue — without it, versioned endpoints either miss every document or duplicate across all of them.
 
 **Build-time generation.** For contract publishing, SDK generation, and CI diffing, generate the document at build time instead of (or in addition to) runtime. Add the package and opt in via the MSBuild property:
 
@@ -250,8 +288,10 @@ app.MapOpenApi();         // /openapi/v1.json  (also YAML in .NET 10)
 The build emits `openapi/<assembly>.json` per document. Publish it from CI as a build artifact (and into your API catalog / SDK pipeline) so consumers don't depend on a running instance.
 
 Sources:
-- [Microsoft.AspNetCore.OpenApi overview](https://learn.microsoft.com/aspnet/core/fundamentals/openapi/overview).
-- [Generate OpenAPI documents at build time](https://learn.microsoft.com/aspnet/core/fundamentals/openapi/aspnetcore-openapi#generate-openapi-documents-at-build-time).
+- [Generate OpenAPI documents (`Microsoft.AspNetCore.OpenApi`)](https://learn.microsoft.com/aspnet/core/fundamentals/openapi/aspnetcore-openapi?view=aspnetcore-9.0) — `AddOpenApi`/`MapOpenApi`, `OpenApiVersion`, build-time generation.
+- [What's new in ASP.NET Core 9.0](https://learn.microsoft.com/aspnet/core/release-notes/aspnetcore-9.0) — built-in OpenAPI shipped in 9.0.
+- [Customize OpenAPI documents with transformers](https://learn.microsoft.com/aspnet/core/fundamentals/openapi/customize-openapi) — document/operation/schema transformers.
+- [`Asp.Versioning.Http.OpenApi` on NuGet](https://www.nuget.org/packages/Asp.Versioning.Http.OpenApi) — versioned-document bridge.
 - [`Scalar.AspNetCore`](https://github.com/scalar/scalar/tree/main/integrations/aspnetcore).
 
 ---
@@ -331,19 +371,21 @@ builder.Services.AddHttpClient<IBillingClient, BillingClient>(c =>
 ```
 
 `AddStandardResilienceHandler` = rate limiter → total timeout → retry → circuit breaker → attempt timeout. Sane default for idempotent calls.
+Apply it once to every typed client with `services.ConfigureHttpClientDefaults(b => b.AddStandardResilienceHandler())`; for clients that need a different pipeline, chain `.RemoveAllResilienceHandlers().AddResilienceHandler("name", b => …)` (or `AddStandardHedgingHandler()`) so the override is explicit instead of forking the defaults.
 
 Rules of thumb:
 - **`AddStandardResilienceHandler` is the default** for outbound HTTP. Use it everywhere unless you need a strategy it doesn't expose. This is the same default `06-cloud-native.md` calls out — pick this chapter's wiring as the source of truth.
 - **Reach for a custom Polly v8 pipeline** (via `AddResilienceHandler("name", b => b.AddRetry(...).AddTimeout(...))`) only when you need non-standard ordering, custom predicates (e.g., retry on a domain error code), or strategies the standard handler doesn't expose. Don't fork the defaults to "tune one knob" — pass options to `AddStandardResilienceHandler` instead.
 - **Hedging** (`AddStandardHedgingHandler`) is for read-heavy fan-out across replicas/regions; cuts tail latency. Don't hedge writes or non-idempotent calls.
-- **Retry only idempotent requests** (GET, PUT, DELETE; POST only if you have idempotency keys). The standard handler retries safe verbs by default — verify on each client.
+- **Retry only idempotent requests.** The standard handler retries safe verbs (GET, HEAD, OPTIONS, PUT, DELETE) by default and skips POST/PATCH. To retry POST, set `Retry.ShouldHandle` to fire **only** on a server-supplied idempotency-key conflict (or a 409 your service emits for a known-safe replay) — never on raw 5xx without an idempotency key, or you will double-charge / double-create.
 - Always set a **total timeout** (end-to-end budget) *and* a per-attempt timeout. Without the total, retries stack unboundedly.
 - Tune **circuit breaker** on failure ratio + sampling duration, not raw counts. Default (50% of 100 samples over 30s, 30s break) is fine for most.
 - **Fallback** is a last resort — an empty list or cached snapshot. Don't fallback to silently ignoring a 500.
 
 Sources:
-- [`Microsoft.Extensions.Http.Resilience`](https://learn.microsoft.com/dotnet/core/resilience/http-resilience) — standard handler, hedging, options.
-- [Polly v8 strategies](https://www.pollydocs.org/strategies/index.html).
+- [Build resilient HTTP apps with `Microsoft.Extensions.Http.Resilience`](https://learn.microsoft.com/dotnet/core/resilience/http-resilience) — definitive for `HttpStandardResilienceOptions`, `HttpRetryStrategyOptions`, pipeline order, and `RemoveAllResilienceHandlers()`.
+- [`Microsoft.Extensions.Http.Resilience` on NuGet](https://www.nuget.org/packages/Microsoft.Extensions.Http.Resilience).
+- [Polly v8 strategies](https://www.pollydocs.org/strategies/index.html) — semantics beyond what the standard handler exposes.
 - [Resilient apps with `Microsoft.Extensions.Resilience`](https://learn.microsoft.com/dotnet/core/resilience/).
 
 ---
@@ -374,7 +416,12 @@ ordersGroup.RequireRateLimiting("per-user");
 - **Partition on authenticated identity** (`oid`/`sub`), falling back to IP. Never partition on IP alone for authenticated APIs — NAT kills you.
 - **Token bucket** for APIs (burst + sustain). **Sliding window** for strict quota. **Concurrency** for expensive endpoints (exports, reports).
 - Emit `Retry-After`. Surface the policy name in problem details for debugging.
-- This is **per-instance**. For accurate global limits, use Redis/Envoy/APIM in front. Built-in is good enough for abuse prevention.
+- This is **per-instance**. For accurate global limits across replicas, terminate at APIM / Envoy / a Redis-backed Lua limiter — there is no first-party distributed limiter as of .NET 10. Built-in is good enough for abuse prevention.
+- Wire the **`Microsoft.AspNetCore.RateLimiting`** meter into the §6 OTel `AddMeter(...)` list so dashboards see lease/queue/rejection counters; pair with `DisableRateLimiting()` on endpoints (e.g. health probes) that must never be throttled.
+
+Sources:
+- [Rate limiting middleware in ASP.NET Core](https://learn.microsoft.com/aspnet/core/performance/rate-limit) — algorithms, partitioning, `DisableRateLimiting()`.
+- [ASP.NET Core built-in metrics](https://learn.microsoft.com/aspnet/core/log-mon/metrics/built-in) — `Microsoft.AspNetCore.RateLimiting` meter.
 
 ---
 
@@ -401,11 +448,16 @@ Do:
 - Cache only GETs that are safe to serve stale-for-a-short-window.
 - Use **tags** for fan-out invalidation (`product:{id}`, `tenant:{id}`).
 - Vary by auth-relevant things (tenant, role) or explicitly bypass for authenticated users.
-- For multi-instance, back it with **Redis** (`Microsoft.Extensions.Caching.StackExchangeRedis` + custom `IOutputCacheStore`). In-memory = divergence.
+- Remember the **default policy never caches authenticated requests** (`HttpContext.User.Identity.IsAuthenticated` short-circuits) — call `b.Cache()` inside the policy to opt back in *after* you have proven `VaryByValue` covers every identity dimension.
+- For multi-instance, back it with a distributed `IOutputCacheStore`. **Microsoft does not ship a Redis `IOutputCacheStore`** — implement one over `IDistributedCache` (Set/GetByTag indexes) or use `Aspire.StackExchange.Redis.OutputCaching` from the .NET Aspire stack. Adding `Microsoft.Extensions.Caching.StackExchangeRedis` alone changes nothing about output caching.
 
 Don't:
 - Cache personalized responses under a shared key. Audit `VaryByValue`.
 - Rely on output cache for rate limiting or expensive-computation gating — use rate limiter and `IMemoryCache`+`LazyCache` respectively.
+
+Sources:
+- [Output caching middleware in ASP.NET Core](https://learn.microsoft.com/aspnet/core/performance/caching/output) — policies, tag invalidation, default-policy short-circuit on auth.
+- [Output caching — `IOutputCacheStore` extensibility](https://learn.microsoft.com/aspnet/core/performance/caching/output#ioutputcachestore) — required surface for a custom (e.g. Redis) store.
 
 ---
 
@@ -511,11 +563,13 @@ Don't:
 - Disable `ValidateIssuer`, `ValidateAudience`, or `ValidateLifetime`. Ever.
 
 Sources:
-- [Microsoft identity platform — access tokens](https://learn.microsoft.com/entra/identity-platform/access-tokens) — `scp`, `roles`, `azp`, `appid`, `tid`, `ver`.
+- [Access token claims reference (Microsoft Entra)](https://learn.microsoft.com/entra/identity-platform/access-token-claims-reference) — exact semantics of `scp`, `roles`, `azp`, `appid`, `tid`, `ver`.
+- [Microsoft identity platform — access tokens](https://learn.microsoft.com/entra/identity-platform/access-tokens) — overview and v1↔v2 differences.
 - [Microsoft.Identity.Web — protected web API](https://learn.microsoft.com/entra/msal/dotnet/microsoft-identity-web/web-apis).
 - [Authorization in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authorization/introduction) — policies, requirements, handlers, fallback policy.
 - [RFC 6750 — Bearer Token Usage](https://datatracker.ietf.org/doc/html/rfc6750).
 - [Continuous Access Evaluation (CAE)](https://learn.microsoft.com/entra/identity/conditional-access/concept-continuous-access-evaluation) and [claims challenges](https://learn.microsoft.com/entra/identity-platform/claims-challenge).
+- [Continuous Access Evaluation in Microsoft.Identity.Web](https://learn.microsoft.com/entra/msal/dotnet/microsoft-identity-web/continuous-access-evaluation) — outbound `tokenAcquisitionOptions.Claims` retry path.
 - Companion: [`validation.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/validation.md), [`best-practices.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/best-practices.md).
 
 ---
@@ -547,6 +601,14 @@ Rules:
 - If you set `PooledConnectionLifetime` on a `SocketsHttpHandler`, set `HandlerLifetime` to `InfiniteTimeSpan` — otherwise the factory rotates handlers *and* you pay DNS refresh twice.
 - For high-throughput services hitting one endpoint, bypass the factory's rotation with a singleton `HttpClient` over a `SocketsHttpHandler` with `PooledConnectionLifetime` set. The factory is great; it's not mandatory.
 - Set HTTP/2 (or /3 behind Envoy/YARP) explicitly; don't rely on the server to upgrade.
+
+**CAE / claims-challenge on outbound calls.** When a downstream API returns `401` with `WWW-Authenticate: Bearer error="insufficient_claims", claims="…"`, the cached token is stale by Entra's policy — retrying with the same token (which the standard resilience handler will happily do on a 5xx-like predicate) loops forever.
+Parse the base64url-encoded `claims` parameter and re-acquire via `ITokenAcquisition.GetAccessTokenForUserAsync(scopes, tokenAcquisitionOptions: new() { Claims = claimsChallenge })` (or `GetAccessTokenForAppAsync` for app-only) before the next attempt; treat raw 401 as non-retryable in `Retry.ShouldHandle` so the resilience handler hands control back to the auth layer.
+
+Sources:
+- [`IHttpClientFactory` guidelines](https://learn.microsoft.com/dotnet/core/extensions/httpclient-factory) and [`SocketsHttpHandler.PooledConnectionLifetime`](https://learn.microsoft.com/dotnet/api/system.net.http.socketshttphandler.pooledconnectionlifetime).
+- [Continuous Access Evaluation in Microsoft.Identity.Web](https://learn.microsoft.com/entra/msal/dotnet/microsoft-identity-web/continuous-access-evaluation) — outbound CAE retry path.
+- [Claims challenges, claims requests, and client capabilities](https://learn.microsoft.com/entra/identity-platform/claims-challenge).
 
 ---
 
@@ -616,6 +678,7 @@ Don't:
 Transport:
 - `UseHttpsRedirection()` and `UseHsts()` (not in dev). Production HSTS max-age ≥ 1 year, `includeSubDomains`, and — once confident — submit for preload.
 - Behind a proxy: `UseForwardedHeaders` **before** auth, with `KnownProxies`/`KnownNetworks` set. Blindly trusting `X-Forwarded-For` is a spoofing bug.
+- **Middleware order behind a TLS-terminating proxy:** `UseForwardedHeaders()` → `UseHsts()` → `UseHttpsRedirection()` → `UseRouting()` → `UseCors()` → `UseAuthentication()` → `UseAuthorization()` → endpoints. Without forwarded headers running first, `Request.Scheme` is `http` after termination, HSTS is silently skipped, and `UseHttpsRedirection()` will either no-op or loop.
 
 CSRF — depends on how the endpoint authenticates the caller, not on the service as a whole. Use this matrix:
 
@@ -627,7 +690,7 @@ CSRF — depends on how the endpoint authenticates the caller, not on the servic
 | BFF (browser → BFF cookie session → API via server-side token) | **Yes on the BFF**; API behind it is bearer-only | The BFF is the cookie surface; the upstream API never sees the cookie. |
 
 Implementation:
-- Minimal APIs: `app.UseAntiforgery()` and apply `[ValidateAntiForgeryToken]` / `RequireAntiforgery()` per endpoint or group; opt cookie-free endpoints out with `DisableAntiforgery()`.
+- Minimal APIs (≥ .NET 8): `app.UseAntiforgery()` **automatically validates** the token on any endpoint that binds `IFormFile`, `IFormFileCollection`, or `[FromForm]` — no `RequireAntiforgery()` needed. Pure-bearer JSON endpoints have no form binding and are not affected. Use `.DisableAntiforgery()` only on form-binding endpoints that are provably not browser-callable (e.g. an S2S file upload behind an app-only token).
 - MVC: enable globally via `AddControllersWithViews(o => o.Filters.Add<AutoValidateAntiforgeryTokenAttribute>())`; `[IgnoreAntiforgeryToken]` for pure-bearer controllers.
 - For SPA-on-cookie BFFs, ship the antiforgery token in a JS-readable cookie (e.g. `XSRF-TOKEN`) and have the SPA echo it as a header.
 
@@ -719,6 +782,41 @@ For real-time. Rules differ from stateless APIs because connections are **long-l
 
 ---
 
+## 18. Health Checks
+
+Split probes by lifecycle — a single `/health` aggregating everything is wrong for Kubernetes (a slow downstream will get pods killed) and wrong for load balancers (a one-shot init failure will keep traffic out forever).
+
+```csharp
+builder.Services.AddHealthChecks()
+    .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live"])
+    .AddSqlServer(connStr,           tags: ["ready"])
+    .AddRedis(redisConn,             tags: ["ready"])
+    .AddCheck<MigrationsApplied>("migrations", tags: ["startup"]);
+
+app.MapHealthChecks("/livez",    new() { Predicate = _ => false });                       // process up only
+app.MapHealthChecks("/readyz",   new() { Predicate = r => r.Tags.Contains("ready")   });  // deps reachable
+app.MapHealthChecks("/startupz", new() { Predicate = r => r.Tags.Contains("startup") });  // one-shot init done
+```
+
+Do:
+- **Liveness** (`/livez`): predicate that excludes every check (`_ => false`) — only proves the process is running. Failing this restarts the pod.
+- **Readiness** (`/readyz`): includes the dependencies a request actually needs (DB, cache, downstream). Failing this removes the pod from rotation but does not restart it.
+- **Startup** (`/startupz`): one-shot work (migrations, warmup). K8s `startupProbe` waits for this before liveness/readiness kick in, so a slow boot doesn't trigger restart loops.
+- Tag every `AddCheck`/`AddSqlServer`/`AddRedis`/etc. so the predicate is data-driven, not a list of names duplicated across config.
+- Push to external systems via `IHealthCheckPublisher` (App Insights availability tests, custom dashboards) instead of polling `/health` from yet another service.
+- For ecosystem checks (RabbitMQ, Kafka, Service Bus, Azure Storage), use the **AspNetCore.Diagnostics.HealthChecks** community packages (`AspNetCore.HealthChecks.*`); they cover most stores and message brokers.
+
+Don't:
+- Map a single `MapHealthChecks("/health")` and point both K8s probes at it. A stale Redis will then restart pods with no warm cache instead of just draining traffic.
+- Run heavyweight checks (full table scans, end-to-end transactions) on every probe interval — health endpoints are hot.
+- Require auth on `/livez` / `/readyz` — kubelet calls them anonymously over the pod network. Expose them on a separate port if you need to keep them off the public ingress.
+
+Sources:
+- [Health checks in ASP.NET Core](https://learn.microsoft.com/aspnet/core/host-and-deploy/health-checks) — `MapHealthChecks`, predicates, tags, `IHealthCheckPublisher`.
+- [`AspNetCore.Diagnostics.HealthChecks`](https://github.com/Xabaril/AspNetCore.Diagnostics.HealthChecks) — community packs for SQL/Redis/Kafka/Service Bus/etc.
+
+---
+
 ## Sources
 
 ### Authoritative (Microsoft / .NET team)
@@ -744,6 +842,7 @@ For real-time. Rules differ from stateless APIs because connections are **long-l
 - [Kestrel limits](https://learn.microsoft.com/aspnet/core/fundamentals/servers/kestrel/options) — every knob explained.
 - [gRPC on .NET](https://learn.microsoft.com/aspnet/core/grpc/) and [gRPC-Web](https://learn.microsoft.com/aspnet/core/grpc/browser) — protocols, deadlines, browser story.
 - [SignalR scale-out](https://learn.microsoft.com/aspnet/core/signalr/scale) and [Azure SignalR Service](https://learn.microsoft.com/azure/azure-signalr/signalr-overview) — backplane choices.
+- [Health checks in ASP.NET Core](https://learn.microsoft.com/aspnet/core/host-and-deploy/health-checks) — live/ready/startup split, predicates, publishers.
 - [.NET Architecture e-books](https://dotnet.microsoft.com/learn/dotnet/architecture-guides) — "Cloud Native", "Microservices", "Modernizing .NET Apps" — still the best long-form guidance from the team.
 - [devblogs.microsoft.com/dotnet — ASP.NET Core tag](https://devblogs.microsoft.com/dotnet/category/aspnet/) — preview posts are where new APIs get explained first.
 
