@@ -6,11 +6,33 @@
 
 ## TL;DR (read this first)
 
-- **Blazor Web App is the default template** since .NET 8. Stop creating separate "Blazor Server" and "Blazor WASM" projects. Pick render modes per-component.
-- **Interactive Auto** is the headline mode but the most complex. Default to **Static SSR + islands of Interactive Server** unless you have a reason not to.
-- **MAUI 10 is an incremental quality release** — fewer bugs, faster startup (XAML source generators, experimental CoreCLR on Android), `TableView`/`MessagingCenter`/`Compatibility.Layout` out. Not a re-architecture.
-- **CommunityToolkit.Mvvm is non-negotiable** for MAUI. Stop hand-rolling `INotifyPropertyChanged`.
-- **Both stacks have real rough edges.** Section at the end is honest about when to pick React / SwiftUI / Kotlin / RN instead.
+- **Blazor Web App is the default template** since .NET 8.
+Stop creating separate "Blazor Server" and "Blazor WASM" projects.
+Pick render modes per-component.
+- **Default render mode for a new SaaS-style Blazor Web App: Static SSR for routable pages + `@rendermode InteractiveServer` islands for forms/dashboards.**
+Fallback to **Interactive Auto** only when the team commits to the two-runtime discipline (portable `.Client` RCL, no server-only APIs in shared components) AND offline/zero-server-state is a real requirement.
+Standalone WebAssembly is a niche choice — use it for fully offline tools or static-host deployments where you have no ASP.NET Core server.
+- **Default cross-platform client framework for a .NET shop in 2025: .NET MAUI** for iOS + Android + Windows when you need real native APIs.
+Fallback to **Blazor PWA** when browser-sandbox reach > native APIs, **Avalonia** when Linux desktop is first-class, **Uno** when you have an existing WinUI/UWP codebase to bring to web/mobile.
+See §"Decision table — MAUI vs PWA vs Avalonia vs Uno" for the full matrix.
+- **Default forms approach in Blazor: `<EditForm Model FormName OnValidSubmit>` + `DataAnnotationsValidator`** for Static SSR and Interactive modes alike.
+Fallback to plain `<form @formname>` + `[SupplyParameterFromForm]` only when you need form markup `EditForm` won't emit.
+Reach for **FluentValidation** (`Blazored.FluentValidation`) when you have cross-field rules; DataAnnotations doesn't.
+- **MAUI 10 is an incremental quality release** — fewer bugs, faster startup (XAML source generators, experimental CoreCLR on Android), `TableView`/`MessagingCenter`/`Compatibility.Layout` out.
+Not a re-architecture.
+- **CommunityToolkit.Mvvm is non-negotiable** for MAUI.
+Stop hand-rolling `INotifyPropertyChanged`.
+- **Both stacks have real rough edges.**
+Section at the end is honest about when to pick React / SwiftUI / Kotlin / RN instead.
+
+**Cross-chapter map (read alongside this chapter):**
+
+- DI lifetimes, captive dependencies, `IServiceScopeFactory` semantics → [Chapter 01 — foundations](./01-foundations.md).
+This chapter only covers where Blazor circuit / MAUI app scopes diverge from those defaults.
+- The **server-side authorization boundary** (JWT bearer + Entra validation, policy-based `[Authorize]`, antiforgery middleware order) → [Chapter 02 — aspnetcore](./02-aspnetcore.md).
+Everything in §5 below is UI gating; the real decision lives in chapter 02.
+- bUnit harness wiring, `WebApplicationFactory` + Playwright integration tests, MAUI UITest plumbing → [Chapter 04 — testing](./04-testing.md).
+This chapter only names what to test; chapter 04 owns the test setup.
 
 ---
 
@@ -54,6 +76,8 @@ Four modes in .NET 8+:
 | Operational complexity | Low | Medium (sticky sessions, backplane) | Medium (publish bundle, version cache) | **High** (two runtimes, two DI scopes) |
 
 **Sources:** Microsoft Learn — [ASP.NET Core Blazor render modes](https://learn.microsoft.com/aspnet/core/blazor/components/render-modes?view=aspnetcore-10.0); [Prerender ASP.NET Core Razor components](https://learn.microsoft.com/aspnet/core/blazor/components/prerender?view=aspnetcore-10.0).
+Practitioner: Steve Sanderson — [Blazor United / render-mode design rationale](https://blog.stevensanderson.com/) (creator of Blazor; explains why per-component modes replaced the old Server-vs-WASM split).
+Chris Sainty — [Render modes in Blazor Web App](https://chrissainty.com/) (worked examples, common mistakes).
 
 ### 2. Streaming rendering, enhanced navigation, enhanced forms
 
@@ -80,6 +104,7 @@ Reach for, in order:
 **Cascading values are for ambient context, not a global store.** Use them for theme, auth snapshot, current `EditContext`, request culture — values that are *read-mostly* and naturally apply to a subtree. Do **not** use cascading parameters as a general-purpose mutable application store: every change re-renders every consumer, dependencies become invisible, and testing degrades. Route mutable cross-component state through a scoped store service (option 2) or an explicit state container (option 4).
 
 **Do**: memorize **"scoped in Server = per-circuit; scoped in WASM = per-user-app lifetime; in Interactive Auto = both, and they aren't the same instance."** This trips everyone up.
+The general DI lifetime rules (Singleton / Scoped / Transient, captive dependencies, `IServiceScopeFactory`) are owned by [Chapter 01 — foundations §DI lifetimes](./01-foundations.md); this section only documents how Blazor's circuit and WASM scopes differ from the server defaults.
 
 **Don't**: store state in static fields. Don't assume `HttpContext` is usable outside Static SSR — it isn't in Interactive modes.
 
@@ -90,6 +115,8 @@ Reach for, in order:
 > - **Decision rule**: if state must survive refresh, route, or device → persist it. URL/query string for shareable view state; server DB for user data; `ProtectedBrowserStorage` (local/session) for client-only preferences; `PersistentComponentState` for prerender → interactive handoff.
 
 **Sources:** Microsoft Learn — [ASP.NET Core Blazor state management](https://learn.microsoft.com/aspnet/core/blazor/state-management?view=aspnetcore-10.0); [Prerendered state persistence](https://learn.microsoft.com/aspnet/core/blazor/components/prerender?view=aspnetcore-9.0#persist-prerendered-state); [SignalR guidance for Blazor — circuit lifetime](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/signalr?view=aspnetcore-10.0).
+Cross-chapter: [Chapter 01 — foundations](./01-foundations.md) for DI lifetime semantics that govern circuit-scoped services.
+Practitioner: Chris Sainty — [`Blazored.LocalStorage` and state patterns](https://chrissainty.com/) for the scoped-service-as-store idiom.
 
 ### 4. Component design
 
@@ -103,7 +130,13 @@ Reach for, in order:
 ### 5. Auth
 
 > **🚨 Security boundary — read this before writing a single `<AuthorizeView>`.**
-> In **Interactive WebAssembly** and **Interactive Auto**, the browser holds a *projection* of the authentication state. The user controls the browser. They can edit memory, swap providers, and lie about claims. **Every authorization decision that matters MUST be enforced on the server or the API.** `<AuthorizeView>`, `[Authorize]` on a Razor component, and any `AuthenticationStateProvider` check on the client are **UI gating only** — they hide buttons, they do not protect data.
+> In **Interactive WebAssembly** and **Interactive Auto**, the browser holds a *projection* of the authentication state.
+> The user controls the browser.
+> They can edit memory, swap providers, and lie about claims.
+> **Every authorization decision that matters MUST be enforced on the server or the API.**
+> `<AuthorizeView>`, `[Authorize]` on a Razor component, and any `AuthenticationStateProvider` check on the client are **UI gating only** — they hide buttons, they do not protect data.
+> The real authorization boundary — JWT bearer validation (`iss`/`aud`/`scp`/`roles`/`azp`), Entra policies, antiforgery middleware order — is owned by [Chapter 02 — aspnetcore §AuthN/AuthZ](./02-aspnetcore.md).
+> If a claim is not validated there, it is not enforced anywhere.
 
 - **Server-rendered (Static SSR / Interactive Server)**: cookie auth via ASP.NET Core Identity or OIDC. `AuthenticationStateProvider` is wired up by the template. Works normally because rendering happens on the server.
 - **Interactive WebAssembly (standalone)**: use `Microsoft.AspNetCore.Components.WebAssembly.Authentication` + `AddMsalAuthentication` or OIDC. The WASM app calls APIs with bearer tokens.
@@ -129,6 +162,8 @@ Reach for, in order:
 - `<AuthorizeView>` for UI gating; `[Authorize]` on `@page` components for client routing; **always** enforce again on the server/API. UI gating is not security.
 
 **Sources:** Microsoft Learn — [ASP.NET Core Blazor authentication and authorization](https://learn.microsoft.com/aspnet/core/blazor/security/?view=aspnetcore-10.0); [Server-side and WebAssembly authentication state with Blazor Web App](https://learn.microsoft.com/aspnet/core/blazor/security/?view=aspnetcore-10.0#manage-authentication-state-in-blazor-web-apps); [Threat mitigation guidance for ASP.NET Core Blazor interactive server-side rendering](https://learn.microsoft.com/aspnet/core/blazor/security/interactive-server-side-rendering?view=aspnetcore-10.0).
+Cross-chapter: [Chapter 02 — aspnetcore](./02-aspnetcore.md) owns the server-side auth boundary (JWT validation, antiforgery middleware, policy authorization) that this section's UI gating sits on top of.
+Web standard: MDN — [Web Storage API and XSS risk](https://developer.mozilla.org/en-US/docs/Web/API/Web_Storage_API) (why `localStorage` is the wrong place for tokens).
 
 ### 6. Performance
 
@@ -158,14 +193,20 @@ Reach for, in order:
 
 ### 8. Forms & validation
 
-- `<EditForm Model>` + `<DataAnnotationsValidator />` + `<ValidationSummary/>` / `<ValidationMessage For>` is the baseline. `EditForm` automatically renders an antiforgery token on Static SSR.
-- For anything beyond trivial, **FluentValidation** via `Blazored.FluentValidation` (community) or the built-in `IValidator<T>` pattern. DataAnnotations doesn't express cross-field rules well.
+**Default**: `<EditForm Model FormName OnValidSubmit>` + `<DataAnnotationsValidator />` + `<ValidationSummary/>` / `<ValidationMessage For>`.
+**Fallback**: plain `<form @formname>` + `[SupplyParameterFromForm]` only when you need markup `EditForm` won't emit (custom enctype handling, fragments outside the component tree).
+**For cross-field rules**: FluentValidation via `Blazored.FluentValidation` — DataAnnotations doesn't express them.
+
+- `EditForm` automatically renders an antiforgery token on Static SSR.
+- For anything beyond trivial, **FluentValidation** via `Blazored.FluentValidation` (community) or the built-in `IValidator<T>` pattern.
 - **Static SSR forms** — pick one of:
   - **`<EditForm Model="Model" FormName="addProduct" OnValidSubmit="Submit">`** — preferred. Antiforgery, validation, and model binding all wired up. `FormName` is required and **must be unique per page** so the binder knows which form posted. Initialize the model defensively in `OnInitialized` (`Model ??= new();`) so prerender + post round-trip works.
   - Or a plain `<form method="post" @onsubmit="Submit" @formname="addProduct">` with `[SupplyParameterFromForm] public ProductModel? Product { get; set; }` on the component, plus `<AntiforgeryToken />` inside the form. Razor components do form model binding through `[SupplyParameterFromForm]`; **`[Bind]` (the MVC attribute) is not the SSR forms pattern** — don't reach for it.
 - .NET 10 adds per-component async validation hooks — use them for "is username available" style checks; don't hack it with `OnInput`.
 
 **Sources:** Microsoft Learn — [ASP.NET Core Blazor forms overview](https://learn.microsoft.com/aspnet/core/blazor/forms/?view=aspnetcore-10.0); [Blazor forms binding](https://learn.microsoft.com/aspnet/core/blazor/forms/binding?view=aspnetcore-10.0); [Blazor forms validation](https://learn.microsoft.com/aspnet/core/blazor/forms/validation?view=aspnetcore-10.0).
+Cross-chapter: [Chapter 02 — aspnetcore](./02-aspnetcore.md) owns the antiforgery middleware that `EditForm` integrates with.
+Practitioner: Chris Sainty — [`Blazored.FluentValidation`](https://github.com/Blazored/FluentValidation) and Blazor forms write-ups on <https://chrissainty.com/>.
 
 ### 9. Testing Blazor
 
@@ -174,6 +215,9 @@ Reach for, in order:
 - For full E2E: **`WebApplicationFactory<TProgram>` + Playwright** (or `Microsoft.Playwright`). Test Interactive Server via real WebSocket; test WASM via real browser.
 - Snapshot-test markup sparingly — Blazor's rendered HTML changes across versions.
 
+**Sources:** [bUnit docs](https://bunit.dev/); Microsoft Learn — [Test Razor components in ASP.NET Core Blazor](https://learn.microsoft.com/aspnet/core/blazor/test?view=aspnetcore-10.0).
+Cross-chapter: [Chapter 04 — testing](./04-testing.md) owns `WebApplicationFactory<TProgram>`, Playwright integration, and the broader component-testing harness; this section names what to test, chapter 04 owns the setup.
+
 ### 9a. PWA (Progressive Web App)
 
 - **PWA support is a Blazor WebAssembly feature** — `dotnet new blazorwasm --pwa` (or the "Progressive Web Application" checkbox in Visual Studio) scaffolds `manifest.webmanifest`, icons, `service-worker.js` (dev), and `service-worker.published.js` (publish-time, asset-hash-aware via the `ServiceWorkerAssetsManifest` MSBuild property + `ServiceWorker` item).
@@ -181,6 +225,8 @@ Reach for, in order:
 - All PWA capabilities (offline cache, install prompt, push, background sync) come from **standard browser APIs** (Web Manifest, Service Worker, Push) — there is no Blazor abstraction over them. The `service-worker.published.js` template is the only Blazor-specific piece, and it exists to do **asset-hash-based cache invalidation** so users actually get new bits after a publish.
 
 **Sources:** Microsoft Learn — [Progressive Web Application support in Blazor](https://learn.microsoft.com/aspnet/core/blazor/progressive-web-app?view=aspnetcore-10.0); [Blazor WebAssembly templates](https://learn.microsoft.com/aspnet/core/blazor/tooling?view=aspnetcore-10.0).
+Web standards: MDN — [Progressive Web Apps](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps), [Service Worker API](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API), [Web App Manifest](https://developer.mozilla.org/en-US/docs/Web/Manifest), [Push API](https://developer.mozilla.org/en-US/docs/Web/API/Push_API).
+W3C specs: [Web App Manifest](https://www.w3.org/TR/appmanifest/); [Service Workers](https://www.w3.org/TR/service-workers/); [Push API](https://www.w3.org/TR/push-api/).
 
 ### 9b. Blazor Hybrid (boundary note)
 
@@ -239,6 +285,9 @@ public partial class TodoViewModel : ObservableObject
 - **Keyed services** (.NET 8+) work — useful for "give me the iOS impl of IPhotoPicker".
 - Register `HttpClient` via `AddHttpClient<T>()`; don't `new HttpClient()` (socket exhaustion on Android is real).
 
+**Sources:** Microsoft Learn — [.NET MAUI dependency injection](https://learn.microsoft.com/dotnet/maui/fundamentals/dependency-injection).
+Cross-chapter: [Chapter 01 — foundations](./01-foundations.md) owns DI lifetime semantics (Singleton / Scoped / Transient, captive dependencies, `IServiceScopeFactory`); this section only documents how MAUI's missing per-request scope diverges from those defaults.
+
 ### 13. Platform code
 
 Preference order:
@@ -292,6 +341,9 @@ Write a platform-agnostic interface in shared code, inject the right impl via DI
 - **UI tests**: `.NET MAUI UITest` (Appium-based, the Xamarin.UITest successor, maintained by the MAUI team) or raw **Appium**. Slow, flaky like all mobile E2E — use sparingly for critical flows (login, checkout).
 - **Snapshot/visual testing**: no first-party story. Third-party (e.g., `PlatformSpecific.Snapshot`) exists but is niche.
 - CI: run VM tests on every PR; run UITest on a nightly schedule against real devices or a device farm.
+
+**Sources:** Microsoft Learn — [.NET MAUI UITest](https://learn.microsoft.com/dotnet/maui/user-interface/test); [Appium](https://appium.io/).
+Cross-chapter: [Chapter 04 — testing](./04-testing.md) owns the broader test harness conventions (xUnit setup, CI fan-out, device-test plumbing) that these MAUI tests slot into.
 
 ### 17a. MAUI 9 → MAUI 10 — what actually changed
 
@@ -378,11 +430,18 @@ Write a platform-agnostic interface in shared code, inject the right impl via DI
 | Distribution | App stores (signing, review) | URL + install prompt | Installer / store / package mgr | Store + web |
 | Mature for production | ✅ MAUI 10 is the first "solid" release | ✅ for the right use case | ✅ desktop; mobile newer | ✅ |
 
-Rules of thumb:
+Rules of thumb (decisive defaults, name your fallback):
+
+- **Default for a .NET shop building cross-platform clients in 2025: MAUI** for iOS/Android/Windows when you need real native APIs.
+Fallback: Avalonia if Linux desktop is in scope; Blazor PWA if you can live with the browser sandbox; Uno if you have an existing WinUI/UWP investment.
 - **Need real native APIs on iOS/Android + Windows desktop, .NET shop?** → MAUI.
 - **Cross-platform reach matters more than native APIs, you can live with the browser sandbox?** → Blazor PWA.
 - **Linux desktop is a first-class target, or you want one pixel-identical UI everywhere?** → Avalonia.
 - **You have an existing WinUI/UWP codebase you want on the web and mobile?** → Uno.
+
+**Sources:** Microsoft Learn — [.NET MAUI overview](https://learn.microsoft.com/dotnet/maui/); [Blazor PWA](https://learn.microsoft.com/aspnet/core/blazor/progressive-web-app?view=aspnetcore-10.0).
+Avalonia — official docs <https://docs.avaloniaui.net/> and repo <https://github.com/AvaloniaUI/Avalonia>.
+Uno Platform — official docs <https://platform.uno/docs/articles/intro.html> and repo <https://github.com/unoplatform/uno>.
 
 ---
 
@@ -399,6 +458,18 @@ Rules of thumb:
 - **CommunityToolkit.Mvvm**: <https://learn.microsoft.com/dotnet/communitytoolkit/mvvm/>
 - **.NET Blog** (team announcements): <https://devblogs.microsoft.com/dotnet/>
 - **Microsoft Identity (MSAL.NET) docs** — broker, mobile: <https://learn.microsoft.com/entra/msal/dotnet/>
+- **Avalonia — official docs**: <https://docs.avaloniaui.net/>; repo <https://github.com/AvaloniaUI/Avalonia>.
+- **Uno Platform — official docs**: <https://platform.uno/docs/articles/intro.html>; repo <https://github.com/unoplatform/uno>.
+
+### Web standards (PWA, browser auth surface)
+- **MDN — Progressive Web Apps**: <https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps>
+- **MDN — Service Worker API**: <https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API>
+- **MDN — Web App Manifest**: <https://developer.mozilla.org/en-US/docs/Web/Manifest>
+- **MDN — Push API**: <https://developer.mozilla.org/en-US/docs/Web/API/Push_API>
+- **MDN — Web Storage API** (token-storage XSS context): <https://developer.mozilla.org/en-US/docs/Web/API/Web_Storage_API>
+- **W3C — Web App Manifest**: <https://www.w3.org/TR/appmanifest/>
+- **W3C — Service Workers**: <https://www.w3.org/TR/service-workers/>
+- **W3C — Push API**: <https://www.w3.org/TR/push-api/>
 
 ### Community / practitioners
 - **Steve Sanderson** — Blazor creator; blog <https://blog.stevensanderson.com/> and conference talks (NDC, .NET Conf).
@@ -412,5 +483,11 @@ Rules of thumb:
 - **David Ortinau** — MAUI PM; .NET Blog MAUI release posts, conference demos.
 - **.NET MAUI Community Toolkit**: <https://github.com/CommunityToolkit/Maui>.
 - **MudBlazor** (OSS Blazor component lib): <https://mudblazor.com/>.
+
+### Cross-chapter
+- [Chapter 01 — foundations](./01-foundations.md): DI lifetimes (Singleton/Scoped/Transient, captive dependencies, `IServiceScopeFactory`) that govern Blazor circuit-scoped services and MAUI's missing per-request scope (§3, §12).
+- [Chapter 02 — aspnetcore](./02-aspnetcore.md): server-side authorization boundary — JWT bearer + Entra validation, antiforgery middleware order, ProblemDetails — that this chapter's UI gating sits on top of (§5, §8).
+- [Chapter 04 — testing](./04-testing.md): bUnit harness, `WebApplicationFactory<TProgram>` + Playwright, MAUI device-test plumbing (§9, §17).
+- See [`coverage-map.md`](../coverage-map.md) — Chapter 07 entry — for the bidirectional cross-link matrix.
 
 Cross-reference all version-specific claims against the Microsoft Learn pages pinned to `view=aspnetcore-10.0` / the .NET 10 MAUI "what's new" doc — preview-era blog posts (early/mid 2025) drift from the final API.
