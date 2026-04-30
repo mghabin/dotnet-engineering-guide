@@ -25,7 +25,7 @@ Four modes in .NET 8+:
 | **Static SSR** | Server | No | Fastest | ~0 (HTML only) | Default. Use for marketing, content, forms-mostly pages. |
 | **Interactive Server** | Server over SignalR | Yes | Fast | Small (~100KB blazor.web.js) | Every interaction is a WebSocket roundtrip. Latency-sensitive. |
 | **Interactive WebAssembly** | Browser | Yes | Slow (download runtime) | Multi-MB (first load) | Offline-capable, zero server state per user. |
-| **Interactive Auto** | Server → WASM | Yes | Fast via Server, then "upgrades" to WASM in background | Both costs eventually | Best UX, highest complexity. Requires code to run *in both environments*. |
+| **Interactive Auto** | Server first, WASM later | Yes | Fast via Interactive Server on the *first* visit | Both costs eventually | First visit runs interactively on the server while the WebAssembly bundle downloads in the background; **subsequent visits** (after the bundle is cached) run on WebAssembly. There is **no in-place handoff inside the same request**. Requires code to run *in both environments*. |
 
 **Do**
 - Default new pages to **Static SSR**. Add `@rendermode InteractiveServer` only on the interactive island (a form, a chart).
@@ -37,44 +37,96 @@ Four modes in .NET 8+:
 - Don't set `@rendermode InteractiveServer` on `App.razor` or the layout unless you *want* a SignalR circuit for every page. This is the #1 Blazor perf mistake.
 - Don't mix Interactive Server and Interactive WebAssembly inside the same interactive subtree — the rules are subtle and you'll get runtime errors.
 - Don't reach for Interactive Auto unless your team can maintain strictly portable components.
+- Don't describe Interactive Auto as a same-request server→WASM "upgrade." On the first visit the server keeps rendering interactively; only later visits actually execute on WebAssembly.
+
+#### Decision table — which Blazor render mode?
+
+| Need | Static SSR | Interactive Server | Interactive WebAssembly | Interactive Auto |
+|---|---|---|---|---|
+| Lowest first paint, SEO content | ✅ | ⚠️ (extra JS) | ❌ (multi-MB) | ⚠️ first visit OK, later visits like WASM |
+| Real-time UI without per-keystroke latency | ❌ | ⚠️ network-bound | ✅ | ✅ once on WASM |
+| Offline / poor network | ❌ | ❌ (circuit dies) | ✅ | ⚠️ only after bundle cached |
+| No per-user server state | ✅ | ❌ (circuit per tab) | ✅ | ⚠️ server state on first visit |
+| Access to server resources (EF Core, secrets) directly in component | ✅ | ✅ | ❌ (call API) | ❌ in shared `.Client` RCL |
+| Authorization enforced by component code | ❌ — never | ❌ — never | ❌ — never | ❌ — never (server/API only) |
+| Operational complexity | Low | Medium (sticky sessions, backplane) | Medium (publish bundle, version cache) | **High** (two runtimes, two DI scopes) |
+
+**Sources:** Microsoft Learn — [ASP.NET Core Blazor render modes](https://learn.microsoft.com/aspnet/core/blazor/components/render-modes?view=aspnetcore-10.0); [Prerender ASP.NET Core Razor components](https://learn.microsoft.com/aspnet/core/blazor/components/prerender?view=aspnetcore-10.0).
 
 ### 2. Streaming rendering, enhanced navigation, enhanced forms
 
 - **`@attribute [StreamRendering]`**: flush initial HTML with placeholders, then stream updates as async data resolves. Use on any Static SSR page whose main content needs >100ms of I/O. Net-zero cost if the page is fast; big perceived-perf win if it isn't.
 - **Enhanced navigation** (default in Blazor Web App): intercepts `<a>`/forms, fetches via `fetch`, patches DOM. Feels SPA-like without any interactivity. Disable per-link with `data-enhance-nav="false"` when you need a full reload (auth redirects, cross-origin).
-- **Enhanced form handling**: `<form data-enhance>` or `<EditForm Enhance>` — posts without full reload. Works on Static SSR. Use it; it's free.
+- **Enhanced form handling**: `<form data-enhance>` or `<EditForm Enhance>` — posts without full reload, patches the DOM. Works on Static SSR — but with caveats:
+  - Only works when the form posts to a **Blazor endpoint** (a routable Razor component handling the POST). Plain MVC/minimal-API endpoints don't get the enhanced behavior.
+  - Every Static SSR form needs a unique **`FormName`** so the model binder knows which form posted.
+  - **Antiforgery**: `<EditForm>` injects the antiforgery token automatically. A plain `<form>` must include `<AntiforgeryToken />` explicitly (Blazor Web App templates ship `AntiforgeryMiddleware` enabled by default; missing tokens = 400).
 
 **Don't** stream-render above-the-fold content the user immediately interacts with — jank.
+
+**Sources:** Microsoft Learn — [Blazor static server-side rendering / streaming](https://learn.microsoft.com/aspnet/core/blazor/components/render-modes?view=aspnetcore-10.0#static-server-side-rendering-static-ssr); [Enhanced navigation and form handling](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/routing?view=aspnetcore-10.0#enhanced-navigation-and-form-handling); [ASP.NET Core Blazor forms overview](https://learn.microsoft.com/aspnet/core/blazor/forms/?view=aspnetcore-10.0).
 
 ### 3. State management — pragmatism over purity
 
 Reach for, in order:
 
-1. **Plain `[Parameter]` / `[CascadingParameter]`** — 80% of cases.
-2. **Scoped DI service** holding state + `event Action StateChanged` that components subscribe to. Unsubscribe in `Dispose`. This is the idiomatic Blazor "store".
-3. **`PersistentComponentState`** / `[PersistentState]` (new in .NET 10) — persist prerender state into interactive mode so you don't double-fetch.
+1. **Plain `[Parameter]` / `[CascadingParameter]`** — 80% of cases for *passing data down a known tree*.
+2. **Scoped DI service** holding state + `event Action StateChanged` that components subscribe to. Unsubscribe in `Dispose`. This is the idiomatic Blazor "store" for cross-component mutable state.
+3. **`PersistentComponentState`** / **`[PersistentState]`** (shipped in .NET 9; .NET 10 adds enhanced-navigation restoration so persisted state survives more navigation scenarios) — persist prerender state into interactive mode so you don't double-fetch.
 4. **Fluxor / BlazorState** — only if you already know you want Redux semantics (time-travel debugging, strict unidirectional flow, large team needing ceremony). Otherwise skip. Most Blazor apps that adopt Fluxor regret the boilerplate.
+
+**Cascading values are for ambient context, not a global store.** Use them for theme, auth snapshot, current `EditContext`, request culture — values that are *read-mostly* and naturally apply to a subtree. Do **not** use cascading parameters as a general-purpose mutable application store: every change re-renders every consumer, dependencies become invisible, and testing degrades. Route mutable cross-component state through a scoped store service (option 2) or an explicit state container (option 4).
 
 **Do**: memorize **"scoped in Server = per-circuit; scoped in WASM = per-user-app lifetime; in Interactive Auto = both, and they aren't the same instance."** This trips everyone up.
 
 **Don't**: store state in static fields. Don't assume `HttpContext` is usable outside Static SSR — it isn't in Interactive modes.
 
+> **⚠️ Per-circuit hazards (Interactive Server)**
+> - **One circuit per browser tab.** Open the same app in two tabs = two scoped service instances, two copies of state, no automatic sync.
+> - **Refresh or new tab = brand-new scoped store.** Anything not persisted (URL, server DB, browser storage, `PersistentComponentState`) is gone.
+> - **Disconnect/reconnect**: brief network drops attempt reconnection to the same circuit; longer drops kill it and the user gets a fresh circuit (and fresh state) on next interaction. Default circuit retention is short — tune with `CircuitOptions` if needed, but don't rely on it for durability.
+> - **Decision rule**: if state must survive refresh, route, or device → persist it. URL/query string for shareable view state; server DB for user data; `ProtectedBrowserStorage` (local/session) for client-only preferences; `PersistentComponentState` for prerender → interactive handoff.
+
+**Sources:** Microsoft Learn — [ASP.NET Core Blazor state management](https://learn.microsoft.com/aspnet/core/blazor/state-management?view=aspnetcore-10.0); [Prerendered state persistence](https://learn.microsoft.com/aspnet/core/blazor/components/prerender?view=aspnetcore-9.0#persist-prerendered-state); [SignalR guidance for Blazor — circuit lifetime](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/signalr?view=aspnetcore-10.0).
+
 ### 4. Component design
 
 - **Parameters** for inputs. **`EventCallback<T>`** for outputs (handles `StateHasChanged` for you — don't use plain `Action`).
 - **`RenderFragment`** / **`RenderFragment<T>`** for templating. Generic components (`@typeparam T`) for reusable lists, tables, pickers.
-- **Cascading values** for ambient concerns (theme, current user, form context). Overuse = hidden coupling.
+- **Cascading values** for *ambient* concerns only (theme, current user snapshot, `EditContext`). Not a global mutable store — see §3.
 - Implement `IAsyncDisposable` when you subscribe to events, start timers, or hold `DotNetObjectReference`. Forgetting this leaks circuits in Interactive Server.
 - `[StreamRendering]` on components with async data under Static SSR.
 - `ShouldRender()` override — last resort. First try `@key`, `EventCallback`, and splitting components.
 
 ### 5. Auth
 
-- **Server-rendered (Static SSR / Interactive Server)**: cookie auth via ASP.NET Core Identity or OIDC. `AuthenticationStateProvider` is wired up. Works normally.
-- **Interactive WebAssembly**: use `Microsoft.AspNetCore.Components.WebAssembly.Authentication` + `AddMsalAuthentication` or OIDC. Persist state with `PersistentAuthenticationStateProvider` so prerender + interactive see the same user.
-- **Interactive Auto**: both of the above — use the template; do not invent your own.
+> **🚨 Security boundary — read this before writing a single `<AuthorizeView>`.**
+> In **Interactive WebAssembly** and **Interactive Auto**, the browser holds a *projection* of the authentication state. The user controls the browser. They can edit memory, swap providers, and lie about claims. **Every authorization decision that matters MUST be enforced on the server or the API.** `<AuthorizeView>`, `[Authorize]` on a Razor component, and any `AuthenticationStateProvider` check on the client are **UI gating only** — they hide buttons, they do not protect data.
+
+- **Server-rendered (Static SSR / Interactive Server)**: cookie auth via ASP.NET Core Identity or OIDC. `AuthenticationStateProvider` is wired up by the template. Works normally because rendering happens on the server.
+- **Interactive WebAssembly (standalone)**: use `Microsoft.AspNetCore.Components.WebAssembly.Authentication` + `AddMsalAuthentication` or OIDC. The WASM app calls APIs with bearer tokens.
+- **Blazor Web App with WebAssembly or Auto interactivity (.NET 9+)**: serialize the server's auth state down to the WebAssembly client so both runtimes see the same user without an extra round-trip.
+
+  ```csharp
+  // Server Program.cs
+  builder.Services.AddRazorComponents()
+      .AddInteractiveServerComponents()
+      .AddInteractiveWebAssemblyComponents()
+      .AddAuthenticationStateSerialization();   // .NET 9+
+  ```
+
+  ```csharp
+  // .Client Program.cs
+  builder.Services.AddAuthorizationCore();
+  builder.Services.AddCascadingAuthenticationState();
+  builder.Services.AddAuthenticationStateDeserialization(); // .NET 9+
+  ```
+
+  This pair replaces the older hand-rolled `PersistentAuthenticationStateProvider` glue. Use the Blazor Web App template's "Individual Accounts" option to scaffold it correctly.
 - **Token storage**: **do not put JWTs in `localStorage`** if you can avoid it (XSS = total account takeover). Preferred pattern: **BFF with HttpOnly, Secure, SameSite=Lax cookies**; the WASM app calls same-origin APIs, the server does token exchange. See `Microsoft.Identity.Web` + YARP or Duende.BFF.
-- `<AuthorizeView>` for UI gating; `[Authorize]` on `@page` components; **always** re-check on the server — UI gating is not security.
+- `<AuthorizeView>` for UI gating; `[Authorize]` on `@page` components for client routing; **always** enforce again on the server/API. UI gating is not security.
+
+**Sources:** Microsoft Learn — [ASP.NET Core Blazor authentication and authorization](https://learn.microsoft.com/aspnet/core/blazor/security/?view=aspnetcore-10.0); [Server-side and WebAssembly authentication state with Blazor Web App](https://learn.microsoft.com/aspnet/core/blazor/security/?view=aspnetcore-10.0#manage-authentication-state-in-blazor-web-apps); [Threat mitigation guidance for ASP.NET Core Blazor interactive server-side rendering](https://learn.microsoft.com/aspnet/core/blazor/security/interactive-server-side-rendering?view=aspnetcore-10.0).
 
 ### 6. Performance
 
@@ -94,10 +146,14 @@ Reach for, in order:
 
 ### 8. Forms & validation
 
-- `<EditForm Model>` + `<DataAnnotationsValidator />` + `<ValidationSummary/>` / `<ValidationMessage For>` is the baseline.
+- `<EditForm Model>` + `<DataAnnotationsValidator />` + `<ValidationSummary/>` / `<ValidationMessage For>` is the baseline. `EditForm` automatically renders an antiforgery token on Static SSR.
 - For anything beyond trivial, **FluentValidation** via `Blazored.FluentValidation` (community) or the built-in `IValidator<T>` pattern. DataAnnotations doesn't express cross-field rules well.
-- Use `[SupplyParameterFromForm]` + `[Bind]` on Static SSR forms — they work without any interactivity.
+- **Static SSR forms** — pick one of:
+  - **`<EditForm Model="..." FormName="addProduct" OnValidSubmit="...">`** — preferred. Antiforgery, validation, and model binding all wired up. `FormName` is required and **must be unique per page** so the binder knows which form posted.
+  - Or a plain `<form @formname="addProduct" method="post" @onsubmit="...">` with `[SupplyParameterFromForm] public ProductModel? Product { get; set; }` on the component, plus `<AntiforgeryToken />` inside the form. Razor components do form model binding through `[SupplyParameterFromForm]`; **`[Bind]` (the MVC attribute) is not the SSR forms pattern** — don't reach for it.
 - .NET 10 adds per-component async validation hooks — use them for "is username available" style checks; don't hack it with `OnInput`.
+
+**Sources:** Microsoft Learn — [ASP.NET Core Blazor forms overview](https://learn.microsoft.com/aspnet/core/blazor/forms/?view=aspnetcore-10.0); [Blazor forms binding](https://learn.microsoft.com/aspnet/core/blazor/forms/binding?view=aspnetcore-10.0); [Blazor forms validation](https://learn.microsoft.com/aspnet/core/blazor/forms/validation?view=aspnetcore-10.0).
 
 ### 9. Testing Blazor
 
@@ -131,11 +187,21 @@ public partial class TodoViewModel : ObservableObject
 
 ### 11. Shell & navigation
 
-- **`Shell` is the default** for any app with tabs/flyout/hierarchical navigation. URL-based routing (`//home/details?id=42`) is the selling point.
+- **`Shell` is the default** for any app with tabs/flyout/hierarchical navigation. URL-based routing (`//home/details?id=42`), built-in flyout, tabs, and search handler are the selling points.
 - **`NavigationPage`** only for apps that are genuinely a simple stack (wizard, small utility).
+- **`FlyoutPage`** exists for *legacy* / non-Shell apps that need a master-detail flyout. **Do not mix `FlyoutPage` with `Shell`** — Shell apps already provide a flyout, and Microsoft documents that combining them is unsupported and will throw at runtime. New apps should use Shell's flyout; only keep `FlyoutPage` when migrating an older Forms/MAUI app where Shell adoption isn't yet feasible.
 - Register routes with `Routing.RegisterRoute("details", typeof(DetailsPage))`.
 - Pass data via **`[QueryProperty]`** or Shell navigation parameters (`Dictionary<string, object>`) — **not** via constructor DI hacks or static singletons.
 - Prefer typed navigation extension methods over raw strings; strings rot.
+
+| Need | `Shell` | `NavigationPage` | `FlyoutPage` |
+|---|---|---|---|
+| Tabs + flyout + URL routing | ✅ | ❌ | ❌ |
+| Simple linear stack only | ⚠️ overkill | ✅ | ❌ |
+| Legacy master-detail without Shell | ❌ (don't mix) | ❌ | ✅ legacy only |
+| Recommended for new apps (.NET 10) | ✅ | ⚠️ niche | ❌ |
+
+**Sources:** Microsoft Learn — [.NET MAUI Shell overview](https://learn.microsoft.com/dotnet/maui/fundamentals/shell/); [.NET MAUI FlyoutPage](https://learn.microsoft.com/dotnet/maui/user-interface/pages/flyoutpage); [Shell navigation](https://learn.microsoft.com/dotnet/maui/fundamentals/shell/navigation).
 
 ### 12. DI in MAUI — know the lifetime lies
 
@@ -175,10 +241,20 @@ Write a platform-agnostic interface in shared code, inject the right impl via DI
 
 ### 16. Lifecycle
 
-- **App lifecycle**: `CreateMauiApp` → `App.OnStart` / `OnSleep` / `OnResume`. Window events (`Activated`, `Deactivated`, `Stopped`, `Resumed`) on `Window`.
+- **Window lifecycle is the modern API — lead here.** Subscribe to events on the `Window` you create in `App.CreateWindow` (or override the `Window` partial):
+  - **`Created`** — window object exists, before it's shown. Wire up services that need a window handle.
+  - **`Activated`** — window has focus / is foregrounded. Resume animations, refresh time-sensitive data.
+  - **`Deactivated`** — lost focus but still visible (e.g., user opened another app on desktop, or pulled down notification center on iOS). Pause heavy work, *don't* tear down state.
+  - **`Stopped`** — window is no longer visible (backgrounded). Persist state, release expensive resources, stop timers. On mobile, treat this as "the OS may kill us soon."
+  - **`Resumed`** — coming back from `Stopped`. Re-acquire resources, reload anything you released.
+  - **`Destroying`** — window is going away. Final cleanup.
 - **Page lifecycle**: `OnAppearing`, `OnDisappearing`, `OnNavigatedTo`, `OnNavigatedFrom`. Fire order is not always what you expect across platforms — test on both.
+- **Legacy `App.OnStart` / `OnSleep` / `OnResume`** still exist for back-compat with Xamarin.Forms-era code, but Microsoft's current MAUI lifecycle guidance is built around **Window** events. Prefer `Window` for any new code; treat the `App`-level methods as a secondary, app-wide hook (e.g., one-time startup telemetry).
+- **Platform-specific lifecycle**: when you need APIs the cross-platform events don't expose (e.g., iOS scene delegates, Android `onSaveInstanceState`), use `ConfigureLifecycleEvents` in `MauiProgram` with the platform-specific delegate hooks.
 - **Background execution** on mobile is **limited and platform-specific**. MAUI has no cross-platform background-task API; use `Platforms/Android/...` for `WorkManager`, `Platforms/iOS/...` for `BGTaskScheduler`. Don't promise "runs every 15 minutes" — iOS will laugh at you.
 - Push: use **Firebase** (Android) + **APNs** (iOS) directly, or a service like Azure Notification Hubs. There is no built-in cross-platform push in MAUI.
+
+**Sources:** Microsoft Learn — [.NET MAUI app lifecycle](https://learn.microsoft.com/dotnet/maui/fundamentals/app-lifecycle); [Window class](https://learn.microsoft.com/dotnet/maui/fundamentals/windows); [Platform lifecycle events](https://learn.microsoft.com/dotnet/maui/platform-integration/configure-lifecycle-events).
 
 ### 17. Testing MAUI
 
@@ -238,6 +314,26 @@ Write a platform-agnostic interface in shared code, inject the right impl via DI
 - You're a .NET shop with an existing ASP.NET Core backend and shared domain code (DTOs, validation, business logic in netstandard/.NET 10 libraries).
 - You're building internal / LOB apps where productivity > pixel-perfection.
 - You need WinUI + mobile from one codebase (MAUI's Windows story is unique).
+
+### Decision table — MAUI vs PWA vs Avalonia vs Uno
+
+| Concern | **.NET MAUI** | **PWA (Blazor WASM / JS)** | **Avalonia** | **Uno Platform** |
+|---|---|---|---|---|
+| Target platforms | iOS, Android, Windows (WinUI), macOS (Catalyst), Tizen | Anywhere with a modern browser; "installable" on most OSes | Windows, macOS, Linux, iOS, Android, browser (WASM) | iOS, Android, Windows, macOS, Linux, browser (WASM) |
+| Native API access | ✅ first-class (Essentials, platform partials) | ❌ browser sandbox only (limited Web APIs) | ⚠️ desktop-good; mobile via bindings | ✅ broad, via platform projections |
+| Offline | ✅ | ⚠️ service-worker dependent | ✅ | ✅ |
+| Desktop depth (Linux first-class?) | ❌ no Linux | ⚠️ runs in browser | ✅ best-in-class for Linux desktop | ✅ |
+| UI consistency across platforms | ⚠️ uses native controls (looks native, behaves differently) | ✅ web is web | ✅ pixel-identical custom rendering | ✅ pixel-identical (or native via WinUI) |
+| Reuse existing WinUI/UWP XAML | ⚠️ partial | ❌ | ⚠️ different XAML dialect | ✅ designed for it |
+| Team skill required | C# + XAML + per-platform quirks | C# + HTML/CSS (or JS) | C# + Avalonia XAML | C# + WinUI/XAML |
+| Distribution | App stores (signing, review) | URL + install prompt | Installer / store / package mgr | Store + web |
+| Mature for production | ✅ MAUI 10 is the first "solid" release | ✅ for the right use case | ✅ desktop; mobile newer | ✅ |
+
+Rules of thumb:
+- **Need real native APIs on iOS/Android + Windows desktop, .NET shop?** → MAUI.
+- **Cross-platform reach matters more than native APIs, you can live with the browser sandbox?** → Blazor PWA.
+- **Linux desktop is a first-class target, or you want one pixel-identical UI everywhere?** → Avalonia.
+- **You have an existing WinUI/UWP codebase you want on the web and mobile?** → Uno.
 
 ---
 
