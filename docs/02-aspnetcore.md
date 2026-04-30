@@ -398,14 +398,27 @@ builder.Services.AddHttpClient<IBillingClient, BillingClient>(c =>
 `AddStandardResilienceHandler` = rate limiter → total timeout → retry → circuit breaker → attempt timeout. Sane default for idempotent calls.
 Apply it once to every typed client with `services.ConfigureHttpClientDefaults(b => b.AddStandardResilienceHandler())`; for clients that need a different pipeline, chain `.RemoveAllResilienceHandlers().AddResilienceHandler("name", b => …)` (or `AddStandardHedgingHandler()`) so the override is explicit instead of forking the defaults.
 
-Rules of thumb:
-- **`AddStandardResilienceHandler` is the default** for outbound HTTP. Use it everywhere unless you need a strategy it doesn't expose. This is the same default `06-cloud-native.md` calls out — pick this chapter's wiring as the source of truth.
-- **Reach for a custom Polly v8 pipeline** (via `AddResilienceHandler("name", b => b.AddRetry(...).AddTimeout(...))`) only when you need non-standard ordering, custom predicates (e.g., retry on a domain error code), or strategies the standard handler doesn't expose. Don't fork the defaults to "tune one knob" — pass options to `AddStandardResilienceHandler` instead.
-- **Hedging** (`AddStandardHedgingHandler`) is for read-heavy fan-out across replicas/regions; cuts tail latency. Don't hedge writes or non-idempotent calls.
-- **Retry only idempotent requests.** The standard handler retries safe verbs (GET, HEAD, OPTIONS, PUT, DELETE) by default and skips POST/PATCH. To retry POST, set `Retry.ShouldHandle` to fire **only** on a server-supplied idempotency-key conflict (or a 409 your service emits for a known-safe replay) — never on raw 5xx without an idempotency key, or you will double-charge / double-create.
-- Always set a **total timeout** (end-to-end budget) *and* a per-attempt timeout. Without the total, retries stack unboundedly.
-- Tune **circuit breaker** on failure ratio + sampling duration, not raw counts. Default (50% of 100 samples over 30s, 30s break) is fine for most.
-- **Fallback** is a last resort — an empty list or cached snapshot. Don't fallback to silently ignoring a 500.
+Pipeline order (outermost → innermost): rate limiter → total timeout → retry → circuit breaker → attempt timeout.
+Defaults: total timeout 30s, retry max 3 with exponential backoff + jitter (base 2s), circuit breaker at 10% failure ratio over 30s sampling with 5s break, attempt timeout 10s.
+Transient triggers: HTTP `5xx`, `408`, `429`, plus `HttpRequestException` and `TimeoutRejectedException`.
+
+**Do:**
+
+- Make `AddStandardResilienceHandler` the default for every outbound `HttpClient` — apply it once via `services.ConfigureHttpClientDefaults(b => b.AddStandardResilienceHandler())`.
+- Call **`o.Retry.DisableForUnsafeHttpMethods()`** unless every mutating endpoint you call accepts an `Idempotency-Key` header and dedups server-side — the standard handler retries **all** HTTP methods by default, including POST/PATCH/PUT/DELETE.
+- Set a **total request timeout** (end-to-end budget) *and* a per-attempt timeout — without the total, retries stack unboundedly.
+- Tune the circuit breaker on failure ratio + sampling duration, not raw counts.
+- Use `AddStandardHedgingHandler` only for read-heavy fan-out across replicas/regions — never hedge writes or non-idempotent calls.
+- To customize, call **`RemoveAllResilienceHandlers()`** first, then add a single configured pipeline — pass options to `AddStandardResilienceHandler` instead of forking defaults to tune one knob.
+- Reach for a custom `AddResilienceHandler("name", b => …)` pipeline only when you need non-standard ordering, custom predicates, or strategies the standard handler doesn't expose.
+
+**Don't:**
+
+- Don't assume the standard handler skips POST/PATCH — it does not; you must opt out explicitly with `DisableForUnsafeHttpMethods()` (or a `Retry.ShouldHandle` predicate that requires an idempotency key).
+- Don't stack resilience handlers — chaining a second `AddResilienceHandler` or hand-rolled Polly handler on the same `HttpClient` produces nested retries and circuit breakers that interact in surprising ways.
+- Don't stack retries across layers (client + gateway + mesh) — pick one layer.
+- Don't circuit-break on every exception — exclude `OperationCanceledException` from request cancellation.
+- Don't fall back by silently swallowing a 500 — fallback should return an empty list or a cached snapshot, and surface the failure to telemetry.
 
 Sources:
 - [Build resilient HTTP apps with `Microsoft.Extensions.Http.Resilience`](https://learn.microsoft.com/dotnet/core/resilience/http-resilience) — definitive for `HttpStandardResilienceOptions`, `HttpRetryStrategyOptions`, pipeline order, and `RemoveAllResilienceHandlers()`.
@@ -877,36 +890,13 @@ Sources:
 
 ## 18. Health Checks
 
-Split probes by lifecycle — a single `/health` aggregating everything is wrong for Kubernetes (a slow downstream will get pods killed) and wrong for load balancers (a one-shot init failure will keep traffic out forever).
-
-```csharp
-builder.Services.AddHealthChecks()
-    .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live"])
-    .AddSqlServer(connStr,           tags: ["ready"])
-    .AddRedis(redisConn,             tags: ["ready"])
-    .AddCheck<MigrationsApplied>("migrations", tags: ["startup"]);
-
-app.MapHealthChecks("/livez",    new() { Predicate = _ => false });                       // process up only
-app.MapHealthChecks("/readyz",   new() { Predicate = r => r.Tags.Contains("ready")   });  // deps reachable
-app.MapHealthChecks("/startupz", new() { Predicate = r => r.Tags.Contains("startup") });  // one-shot init done
-```
-
-Do:
-- **Liveness** (`/livez`): predicate that excludes every check (`_ => false`) — only proves the process is running. Failing this restarts the pod.
-- **Readiness** (`/readyz`): includes the dependencies a request actually needs (DB, cache, downstream). Failing this removes the pod from rotation but does not restart it.
-- **Startup** (`/startupz`): one-shot work (migrations, warmup). K8s `startupProbe` waits for this before liveness/readiness kick in, so a slow boot doesn't trigger restart loops.
-- Tag every `AddCheck`/`AddSqlServer`/`AddRedis`/etc. so the predicate is data-driven, not a list of names duplicated across config.
-- Push to external systems via `IHealthCheckPublisher` (App Insights availability tests, custom dashboards) instead of polling `/health` from yet another service.
-- For ecosystem checks (RabbitMQ, Kafka, Service Bus, Azure Storage), use the **AspNetCore.Diagnostics.HealthChecks** community packages (`AspNetCore.HealthChecks.*`); they cover most stores and message brokers.
-
-Don't:
-- Map a single `MapHealthChecks("/health")` and point both K8s probes at it. A stale Redis will then restart pods with no warm cache instead of just draining traffic.
-- Run heavyweight checks (full table scans, end-to-end transactions) on every probe interval — health endpoints are hot.
-- Require auth on `/livez` / `/readyz` — kubelet calls them anonymously over the pod network. Expose them on a separate port if you need to keep them off the public ingress.
+The health-check probe contract — endpoint naming (`/health/live`, `/health/ready`, `/health/startup`), tag-driven predicates, what each probe must and must not include, and how to cache expensive checks — is owned by **`06-cloud-native.md` §10**.
+That chapter aligns the endpoints with the Aspire ServiceDefaults convention and with the Kubernetes probe model, so the contract lives next to the deployment surface that consumes it.
+This chapter intentionally does not restate it; wire `AddHealthChecks(...)` per ch06 §10 and map endpoints exactly as documented there.
 
 Sources:
+- ch06 §10 — health-check probe contract and endpoint naming.
 - [Health checks in ASP.NET Core](https://learn.microsoft.com/aspnet/core/host-and-deploy/health-checks) — `MapHealthChecks`, predicates, tags, `IHealthCheckPublisher`.
-- [`AspNetCore.Diagnostics.HealthChecks`](https://github.com/Xabaril/AspNetCore.Diagnostics.HealthChecks) — community packs for SQL/Redis/Kafka/Service Bus/etc.
 
 ---
 

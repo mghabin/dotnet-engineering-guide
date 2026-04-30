@@ -357,66 +357,15 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
 
 ---
 
-## 6. Resilience — Polly v8 standard pipelines, not hand-rolled retries
+## 6. Resilience — see ch02 §7
 
-`Microsoft.Extensions.Http.Resilience` (Polly v8 under the hood, sitting on `Microsoft.Extensions.Resilience`) ships a standard HTTP pipeline with five strategies in fixed order, outermost → innermost:
+The HTTP resilience pipeline contract — `AddStandardResilienceHandler`, the five-strategy ordering and defaults, the retry policy (including the fact that the standard handler retries **all** HTTP methods by default and `DisableForUnsafeHttpMethods()` is required for non-idempotent verbs without idempotency keys), and hedging — is owned by **`02-aspnetcore.md` §7**.
+That chapter is the single source of truth for outbound `HttpClient` wiring across this guide; this chapter does not restate the pipeline so the two cannot drift.
+The transactional **outbox pattern** (table shape, dispatcher contract, broker integration via Dapr / MassTransit / NServiceBus / Wolverine) remains a cloud-native concern and is covered alongside the data tier in **`03-data.md`**.
 
-| # | Strategy | Default |
-|---|---|---|
-| 1 | Rate limiter | Queue 0, Permit 1000 (per pipeline) |
-| 2 | Total request timeout | 30s |
-| 3 | Retry | Max 3, exponential, jitter on, base delay 2s |
-| 4 | Circuit breaker | Failure ratio 10%, min throughput 100, sampling 30s, break 5s |
-| 5 | Attempt timeout | 10s |
-
-Triggers (handled as transient): HTTP `5xx`, `408`, `429`, plus `HttpRequestException` and `TimeoutRejectedException`.
-
-```csharp
-builder.Services.AddHttpClient<CatalogClient>()
-    .AddStandardResilienceHandler(o =>
-    {
-        o.Retry.MaxRetryAttempts = 3;
-        o.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
-        o.AttemptTimeout.Timeout = TimeSpan.FromSeconds(2);
-        o.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(10);
-
-        // Retries fire for ALL HTTP methods by default — including POST/PUT/PATCH/DELETE.
-        // Disable for non-idempotent verbs to avoid duplicate side effects.
-        o.Retry.DisableForUnsafeHttpMethods();
-    });
-```
-
-> **POST-retry hazard.** `AddStandardResilienceHandler` retries every method by default. If your POSTs are not idempotent (no idempotency key, no dedup store), call **`DisableForUnsafeHttpMethods()`** on the retry options — or better, design every mutating endpoint to take an `Idempotency-Key` header and dedup server-side.
-
-> **Don't stack handlers.** `AddStandardResilienceHandler` is *the* pipeline; do **not** chain a second `AddResilienceHandler` or a hand-rolled `Polly` handler on the same `HttpClient` — you'll get nested retries and circuit breakers that interact in surprising ways. To customize, call **`RemoveAllResilienceHandlers()`** first, then re-add a single configured pipeline.
-
-**Do:**
-
-- ✅ `AddStandardResilienceHandler` on every outbound `HttpClient`. Make it the default.
-- ✅ Call `DisableForUnsafeHttpMethods()` on the retry strategy unless you have idempotency keys end-to-end.
-- ✅ **Idempotency keys** on POSTs that mutate money/state. `Idempotency-Key` header, dedup store with TTL in Redis.
-- ✅ **Outbox pattern** for "save row + publish event" — never two-phase commit. Transactional outbox table, a relay pushes to the bus. There is **no first-party Aspire outbox integration**; pick one of: **Dapr** state-management outbox (transactional state store + `outboxPublishPubsub`/`outboxPublishTopic` metadata), or a library outbox in **MassTransit** / **NServiceBus** / **Wolverine**. Aspire integrates with these only at the broker level (e.g., `Aspire.Hosting.RabbitMQ`, `Aspire.Azure.Messaging.ServiceBus`).
-- ✅ **Chaos**: add `AddChaosLatency` / `AddChaosFault` strategies behind a feature flag in non-prod to test resilience paths.
-
-**Don't:**
-
-- ❌ Retry on non-idempotent verbs without an idempotency key. You'll double-charge customers.
-- ❌ Stack retries at multiple layers (client + gateway + mesh). Pick one. And don't stack two resilience handlers on the same `HttpClient`.
-- ❌ Circuit-break on **every** exception type. Exclude `OperationCanceledException` from request cancellation.
-
-**Cross-references:**
-
-- The **transactional outbox pattern itself** (table shape, `IDbContextFactory<T>` usage, transaction scope, dispatcher contract) is **owned by `ch03`** (data tier). This chapter only owns the **dispatcher topology** — where the relay runs (hosted service / sidecar / worker pool) and how it integrates with the broker.
-- The HTTP request-pipeline side of resilience — rate-limiting middleware, request-size limits, Kestrel surface defaults — is **owned by `ch02`**. Outbound `HttpClient` resilience is the side this section owns.
-- `ProblemDetails` shape returned to callers when the pipeline gives up (after retry/circuit-break) is **owned by `ch02`**.
-
-**Sources:**
-
-- HTTP resilience (`AddStandardResilienceHandler`, defaults, `DisableForUnsafeHttpMethods`, `RemoveAllResilienceHandlers`) — <https://learn.microsoft.com/dotnet/core/resilience/http-resilience>
-- Polly v8 — <https://www.pollydocs.org/>
-- Dapr state-management outbox (CNCF incubating) — <https://docs.dapr.io/developing-applications/building-blocks/state-management/howto-outbox/>
-- OWASP API Security Top 10 (rate-limiting, idempotency, replay) — <https://owasp.org/API-Security/editions/2023/en/0x11-t10/>
-- NIST SP 800-204 — Security Strategies for Microservices-Based Application Systems (resilience, circuit breaking) — <https://csrc.nist.gov/pubs/sp/800/204/final>
+Sources:
+- ch02 §7 — `AddStandardResilienceHandler` defaults, retry policy, hedging, `DisableForUnsafeHttpMethods`, `RemoveAllResilienceHandlers`.
+- HTTP resilience reference — <https://learn.microsoft.com/dotnet/core/resilience/http-resilience>.
 
 ---
 
@@ -641,6 +590,7 @@ app.MapHealthChecks("/health/startup", new HealthCheckOptions { Predicate = r =>
 - `HealthCheckOptions` API — <https://learn.microsoft.com/dotnet/api/microsoft.aspnetcore.diagnostics.healthchecks.healthcheckoptions>
 - `IHealthCheckPublisher` — <https://learn.microsoft.com/dotnet/api/microsoft.extensions.diagnostics.healthchecks.ihealthcheckpublisher>
 - Aspire ServiceDefaults endpoints (`MapDefaultEndpoints`) — <https://aspire.dev/get-started/csharp-service-defaults/>
+- Kubernetes — Configure Liveness, Readiness and Startup Probes — <https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/>
 
 ---
 
