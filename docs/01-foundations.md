@@ -3,7 +3,7 @@
 Opinionated, cross-cutting defaults for a .NET 10 codebase.
 Everything here is do-this-by-default; deviations should be justified in code review.
 ASP.NET Core surface lives in [chapter 02](./02-aspnetcore.md), data in [chapter 03](./03-data.md), testing in [chapter 04](./04-testing.md), perf in [chapter 05](./05-performance.md), cloud-native in [chapter 06](./06-cloud-native.md), client in [chapter 07](./07-client.md).
-Ownership of each concept (and what defers where) is recorded in [`coverage-map.md`](../coverage-map.md#chapter-01--foundations).
+Ownership of each concept (and what defers where) is recorded in [`coverage-map.md`](../coverage-map.md#chapter-01-foundations).
 
 > Conventions: **Do** = required default. **Don't** = reject in review unless a
 > written exception exists. **Prefer** = strong default; use the alternative
@@ -96,6 +96,8 @@ libs; you will want it the first time prod stack-traces hit a NuGet'd package.
 - [`ContinuousIntegrationBuild`](https://learn.microsoft.com/dotnet/core/project-sdk/msbuild-props#continuousintegrationbuild) — what the CI flag strips from PDBs.
 - [reproducible-builds.org — Definition](https://reproducible-builds.org/docs/definition/) — vendor-neutral definition the .NET reproducible-build flags target.
 - [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) — the contract `Directory.Packages.props` versions are expected to honor.
+- [`dotnet/sdk` — repository](https://github.com/dotnet/sdk) — primary source for SDK behaviour, MSBuild SDK targets, and `global.json` semantics.
+- [ECMA-334 — C# Language Specification](https://ecma-international.org/publications-and-standards/standards/ecma-334/) — the standardized language spec the C# compiler targets.
 
 > **See also**: monorepo layout and CI fan-out live in [`patterns/monorepo.md`](../patterns/monorepo.md), and the test-project conventions assumed by the `tests/` sibling layout are owned by [chapter 04 §1–§2](./04-testing.md#1-the-pyramid-and-why-most-teams-get-it-wrong).
 
@@ -250,6 +252,10 @@ method does.
 - [Pattern matching](https://learn.microsoft.com/dotnet/csharp/fundamentals/functional/pattern-matching) — switch expressions, property/list patterns.
 - [`ref readonly` parameters](https://learn.microsoft.com/dotnet/csharp/language-reference/keywords/ref#ref-readonly-parameters) — when to use over `in`.
 - [ECMA-335 — Common Language Infrastructure](https://ecma-international.org/publications-and-standards/standards/ecma-335/) — the standardized runtime/IL spec the language targets (vendor-neutral baseline behind the C# spec).
+- [`dotnet/csharplang` — language design notes](https://github.com/dotnet/csharplang) — primary source for C# 13/14 design discussions, LDM notes, and proposal status (the spec ships from here).
+- [`dotnet/csharplang` — C# 14 proposals](https://github.com/dotnet/csharplang/tree/main/proposals/csharp-14.0) — `field` keyword, extension members, partial constructors, first-class Span conversions: where the design is recorded.
+- [`dotnet/csharplang` — C# 13 proposals](https://github.com/dotnet/csharplang/tree/main/proposals/csharp-13.0) — `params` collections, `ref readonly`, `Lock` type, `OverloadResolutionPriority`.
+- [`dotnet/roslyn` — repository](https://github.com/dotnet/roslyn) — the C# compiler; primary source for analyzer/source-generator authoring and language-feature implementation status.
 
 ---
 
@@ -302,6 +308,8 @@ amnesty.
 - [`ArgumentNullException.ThrowIfNull`](https://learn.microsoft.com/dotnet/api/system.argumentnullexception.throwifnull) — annotated guard; feeds flow analysis.
 - [`StringSyntaxAttribute`](https://learn.microsoft.com/dotnet/api/system.diagnostics.codeanalysis.stringsyntaxattribute) — string-literal hints for analyzers/IDEs.
 - [Andrew Lock — *Embracing nullable reference types*](https://andrewlock.net/series/embracing-nullable-reference-types/) — community-canonical migration playbook for incremental NRT adoption on existing codebases.
+- [`dotnet/csharplang` — Nullable reference types specification](https://github.com/dotnet/csharplang/blob/main/proposals/csharp-8.0/nullable-reference-types-specification.md) — primary spec for NRT flow analysis, suppressions, and attribute semantics.
+- [Mads Torgersen — *Embracing nullable reference types* (devblogs)](https://devblogs.microsoft.com/dotnet/embracing-nullable-reference-types/) — language-team announcement and rationale.
 
 ---
 
@@ -390,6 +398,8 @@ singleton — the captured state is the lifetime of the singleton.
 - [Stephen Cleary — *Async and Await*](https://blog.stephencleary.com/2012/02/async-and-await.html) — canonical primer; `async void` exception flow.
 - [Stephen Cleary — *Don't Block on Async Code*](https://blog.stephencleary.com/2012/07/dont-block-on-async-code.html) — sync-over-async deadlock anatomy.
 - [David Fowler — *AspNetCoreDiagnosticScenarios — AsyncGuidance*](https://github.com/davidfowl/AspNetCoreDiagnosticScenarios/blob/main/AsyncGuidance.md) — community-maintained field guide to async + DI gotchas; cross-linked from `Further reading`.
+- [Stephen Toub — *Async/await internals* (devblogs)](https://devblogs.microsoft.com/dotnet/how-async-await-really-works/) — primary-source walk-through of the state machine, `IValueTaskSource`, and async-method-builder lowering.
+- [`dotnet/runtime` — Threading & Tasks design docs](https://github.com/dotnet/runtime/tree/main/docs/design/features) — primary source for `Task`, `ValueTask`, and synchronization-context internals.
 
 ---
 
@@ -454,7 +464,7 @@ never re-resolves).
 Add resilience via `Microsoft.Extensions.Http.Resilience` (Polly v8 under the
 hood): `.AddStandardResilienceHandler()` gets you retry+circuit-breaker+timeout
 defaults that are sensible.
-The cluster-level resilience story (Aspire `ServiceDefaults` wiring of the same handler across every outbound `HttpClient`) is owned by [chapter 06 §6 Resilience](./06-cloud-native.md#6-resilience--polly-v8-standard-pipelines-not-hand-rolled-retries); this section owns the per-client defaults, that section owns the platform default.
+The cluster-level resilience story (Aspire `ServiceDefaults` wiring of the same handler across every outbound `HttpClient`) is owned by [chapter 06 §6 Resilience](./06-cloud-native.md#6-resilience-see-ch02-7); this section owns the per-client defaults, that section owns the platform default.
 
 **Sources:**
 
@@ -466,6 +476,7 @@ The cluster-level resilience story (Aspire `ServiceDefaults` wiring of the same 
 - [`IHttpClientFactory`](https://learn.microsoft.com/dotnet/core/extensions/httpclient-factory) — named/typed clients, handler pooling.
 - [`Microsoft.Extensions.Http.Resilience`](https://learn.microsoft.com/dotnet/core/resilience/http-resilience) — Polly v8 standard handlers.
 - [Steve Gordon — *HttpClientFactory in ASP.NET Core* (series)](https://www.stevejgordon.co.uk/introduction-to-httpclientfactory-aspnetcore) — community-canonical internals walkthrough: handler pooling, lifetimes, the `LogicalHandler`/`PrimaryHandler` chain.
+- [`dotnet/runtime` — `Microsoft.Extensions.DependencyInjection` source](https://github.com/dotnet/runtime/tree/main/src/libraries/Microsoft.Extensions.DependencyInjection) — primary source for DI lifetime semantics, scope validation, and keyed services.
 
 ---
 
@@ -503,7 +514,7 @@ environment variables → command-line. Don't fight the precedence; document it.
   process and shell history. Use `dotnet user-secrets` for local dev.
 - In every other environment, use Key Vault (or your cloud equivalent) and
   reference via the configuration provider; the provider handles rotation.
-  Cluster-side secrets topology (Workload Identity, CSI Key Vault driver, ConfigMap layering) is owned by [chapter 06 §4 Configuration](./06-cloud-native.md#4-configuration--configmap--csi-key-vault-not-appsettingsproductionjson) and [chapter 06 §8 Secrets & identity](./06-cloud-native.md#8-secrets--identity--workload-identity-only); this section owns only the in-process binding/validation rules.
+  Cluster-side secrets topology (Workload Identity, CSI Key Vault driver, ConfigMap layering) is owned by [chapter 06 §4 Configuration](./06-cloud-native.md#4-configuration-configmap-csi-key-vault-not-appsettingsproductionjson) and [chapter 06 §8 Secrets & identity](./06-cloud-native.md#8-secrets-identity-workload-identity-only); this section owns only the in-process binding/validation rules.
 - `ILogger` redaction: ensure secrets are never tokens in structured log
   templates; wrap in a custom type that overrides `ToString()`.
 
@@ -518,6 +529,7 @@ smell that defeats validation, defeats reload, and defeats testability.
 - [Configuration providers & precedence](https://learn.microsoft.com/dotnet/core/extensions/configuration) — layering rules.
 - [Safe storage of secrets in development](https://learn.microsoft.com/aspnet/core/security/app-secrets) — `dotnet user-secrets`.
 - [Andrew Lock — *Adding validation to strongly-typed configuration objects*](https://andrewlock.net/adding-validation-to-strongly-typed-configuration-objects-in-asp-net-core/) — community-canonical walk-through of `IValidateOptions<T>`, `[OptionsValidator]`, and `ValidateOnStart` patterns.
+- [`[OptionsValidator]` source generator — devblogs](https://devblogs.microsoft.com/dotnet/announcing-dotnet-8-rc1/#optionsvalidator-source-generator) — the .NET team announcement and rationale for compile-time options validation.
 
 ---
 
@@ -550,6 +562,7 @@ always `using`.
 - [Implement `IDisposable` / dispose pattern](https://learn.microsoft.com/dotnet/standard/garbage-collection/implementing-dispose) — when finalizers, when not.
 - [Implement `IAsyncDisposable`](https://learn.microsoft.com/dotnet/standard/garbage-collection/implementing-disposeasync) — `await using` rules.
 - [`CancellationTokenSource`](https://learn.microsoft.com/dotnet/api/system.threading.cancellationtokensource) — disposal of linked sources.
+- [Stephen Toub — *DisposeAsync* notes (devblogs)](https://devblogs.microsoft.com/dotnet/configureawait-faq/#what-about-asynchronous-disposal) — async disposal semantics and `await using` rules from the libraries lead.
 
 ---
 
@@ -560,7 +573,7 @@ exceptional — return them as values (model-state errors, `ProblemDetails`,
 `Result<T>`). Authorization failures, missing-but-expected resources,
 optimistic concurrency, downstream timeouts — all *expected* on a healthy
 system; design them as flow, not throws.
-The HTTP error envelope (`ProblemDetails` per RFC 9457, `AddProblemDetails`, exception-handler middleware) is owned by [chapter 02 §3 ProblemDetails & Error Handling](./02-aspnetcore.md#3-problemdetails--error-handling); this section owns only the in-process exception discipline.
+The HTTP error envelope (`ProblemDetails` per RFC 9457, `AddProblemDetails`, exception-handler middleware) is owned by [chapter 02 §3 ProblemDetails & Error Handling](./02-aspnetcore.md#3-problemdetails-error-handling); this section owns only the in-process exception discipline.
 
 **Don't catch `Exception`.** Two exceptions: (1) a top-level boundary that
 logs and converts to a transport error (ASP.NET exception handler middleware,
@@ -599,6 +612,8 @@ catch it specifically, it shouldn't exist as its own type — a built-in
 - [Best practices for exceptions](https://learn.microsoft.com/dotnet/standard/exceptions/best-practices-for-exceptions) — design rules.
 - [`ExceptionDispatchInfo`](https://learn.microsoft.com/dotnet/api/system.runtime.exceptionservices.exceptiondispatchinfo) — preserving stacks across boundaries.
 - [`ProblemDetails` (RFC 9457)](https://datatracker.ietf.org/doc/html/rfc9457) — current standard error envelope for HTTP APIs; obsoletes RFC 7807.
+- [RFC 9110 — HTTP Semantics](https://datatracker.ietf.org/doc/html/rfc9110) — primary source for status-code semantics that shape the exception → ProblemDetails mapping.
+- [`dotnet/runtime` — Exception design notes](https://github.com/dotnet/runtime/blob/main/docs/design/coreclr/botr/exceptions.md) — primary-source CLR exception model behind the BCL guidance.
 
 ---
 
@@ -654,6 +669,8 @@ This is the canonical C# 14 replacement for the `private string _name; public st
 - [`System.Collections.Immutable`](https://learn.microsoft.com/dotnet/api/system.collections.immutable) — `ImmutableArray<T>`, `ImmutableList<T>`.
 - [Choosing between class and struct](https://learn.microsoft.com/dotnet/standard/design-guidelines/choosing-between-class-and-struct) — when value semantics fit.
 - [Eric Lippert — *Immutability in C#* (series)](https://learn.microsoft.com/archive/blogs/ericlippert/immutability-in-c-part-one-kinds-of-immutability) — taxonomy of write-once / shallow / deep / observational immutability; shapes the rule that `IReadOnlyList<T>` is a view, not a guarantee.
+- [`dotnet/csharplang` — Records proposal](https://github.com/dotnet/csharplang/blob/main/proposals/csharp-9.0/records.md) — primary-source design notes for `record` value-equality semantics referenced throughout this section.
+- [Mads Torgersen — *C# 9 Records* (devblogs)](https://devblogs.microsoft.com/dotnet/welcome-to-c-9-0/) — language-team announcement of records and `init` accessors.
 
 ---
 
@@ -681,7 +698,7 @@ default; fall back to reflection only when shape isn't statically knowable.
 - **Minimal API `RequestDelegate` generator** (on by default in ASP.NET Core
   7+). Removes per-request reflection; you get it for free as long as your
   endpoint signatures are static. Don't dynamically build endpoints if you
-  can express them statically — see [chapter 02 §1 Minimal APIs vs Controllers](./02-aspnetcore.md#1-minimal-apis-vs-controllers) for the endpoint-shape rules and [chapter 05 §6 Reflection alternatives](./05-performance.md#6-reflection-alternatives--source-generators-win) for the perf rationale that puts generators ahead of reflection by default.
+  can express them statically — see [chapter 02 §1 Minimal APIs vs Controllers](./02-aspnetcore.md#1-minimal-apis-vs-controllers) for the endpoint-shape rules and [chapter 05 §6 Reflection alternatives](./05-performance.md#6-reflection-alternatives-source-generators-win) for the perf rationale that puts generators ahead of reflection by default.
 
 `StringSyntaxAttribute` is *not* a source generator — it's a metadata attribute
 consumed by analyzers/IDEs; see §3.
@@ -705,6 +722,8 @@ runs in the IDE — every dep becomes a load-order hazard).
 - [`System.Text.Json` source generation](https://learn.microsoft.com/dotnet/standard/serialization/system-text-json/source-generation) — AOT, perf, startup.
 - [`GeneratedRegex`](https://learn.microsoft.com/dotnet/standard/base-types/regular-expression-source-generators) — compile-time regex.
 - [Roslyn interceptors feature doc](https://github.com/dotnet/roslyn/blob/main/docs/features/interceptors.md) — current status, encoding, generator-only guidance.
+- [`dotnet/runtime` — `LoggerMessage` source generator](https://github.com/dotnet/runtime/tree/main/src/libraries/Microsoft.Extensions.Logging.Abstractions/gen) — primary-source generator implementation behind the high-perf logging guidance.
+- [Source generators cookbook (`dotnet/roslyn`)](https://github.com/dotnet/roslyn/blob/main/docs/features/source-generators.cookbook.md) — primary-source authoring guide.
 - [Source generators overview](https://learn.microsoft.com/dotnet/csharp/roslyn-sdk/source-generators-overview) — authoring guidance.
 
 ---
@@ -758,7 +777,7 @@ server (or NuGet.org's).
 **`dotnet test` and Microsoft.Testing.Platform.** The .NET 10 SDK ships
 first-class Microsoft.Testing.Platform (MTP) support in `dotnet test` alongside
 the legacy VSTest pipeline.
-The runner choice, opt-in, and CI integration rules are owned by [chapter 04 §2 Frameworks: xUnit v3, MSTest, NUnit](./04-testing.md#2-frameworks-xunit-v3-mstest-nunit); just don't bake VSTest-only assumptions into CI templates you author today.
+The runner choice, opt-in, and CI integration rules are owned by [chapter 04 §2 Frameworks: xUnit v3, MSTest, NUnit](./04-testing.md#2-frameworks-xunit-v3-mstest-nunit-tunit); just don't bake VSTest-only assumptions into CI templates you author today.
 
 **Sources:**
 
@@ -770,6 +789,7 @@ The runner choice, opt-in, and CI integration rules are owned by [chapter 04 §2
 - [.NET 10 SDK — what's new](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-10/sdk) — `dotnet test` and Microsoft.Testing.Platform.
 - [OWASP — Software Component Verification Standard (SCVS)](https://owasp.org/www-project-software-component-verification-standard/) — vendor-neutral baseline that `NuGetAudit` + lock-file restore are meant to satisfy.
 - [NIST SP 800-218 — Secure Software Development Framework (SSDF)](https://csrc.nist.gov/publications/detail/sp/800-218/final) — primary-source reference for the supply-chain controls (PW.4, PS.3) the build pipeline implements.
+- [Sigstore project](https://www.sigstore.dev/) — primary-source supply-chain signing infrastructure (`cosign`, transparency log) referenced from the CI baseline.
 
 ---
 
@@ -778,7 +798,7 @@ The runner choice, opt-in, and CI integration rules are owned by [chapter 04 §2
 The defaults are good. Change them only with measurement, and pin the
 overrides in source so they ride with the binary instead of living in a
 deployment script.
-NativeAOT specifics, `DOTNET_*` Dockerfile env-vars, and `GCHeapCount` tuning are owned by [chapter 05 §8 JIT & AOT](./05-performance.md#8-jit--aot), [chapter 05 §9 GC](./05-performance.md#9-gc), and [chapter 05 §11 Containers](./05-performance.md#11-containers--what-to-set); the container baseline that consumes them is owned by [chapter 06 §2 Containerization](./06-cloud-native.md#2-containerization--no-dockerfile-if-you-can-avoid-it) and [chapter 06 §3 Kubernetes / AKS](./06-cloud-native.md#3-kubernetes--aks--probes-limits-gc-shutdown).
+NativeAOT specifics, `DOTNET_*` Dockerfile env-vars, and `GCHeapCount` tuning are owned by [chapter 05 §8 JIT & AOT](./05-performance.md#8-jit-aot), [chapter 05 §9 GC](./05-performance.md#9-gc), and [chapter 05 §11 Containers](./05-performance.md#11-containers-what-to-set); the container baseline that consumes them is owned by [chapter 06 §2 Containerization](./06-cloud-native.md#2-containerization-no-dockerfile-if-you-can-avoid-it) and [chapter 06 §3 Kubernetes / AKS](./06-cloud-native.md#3-kubernetes-aks-probes-limits-gc-shutdown).
 This section owns only the in-process, in-csproj defaults.
 
 **Server GC for server workloads.** ASP.NET Core and most service hosts
@@ -860,6 +880,8 @@ next to the csproj; do not let ops set GC policy in the deploy pipeline.
 - [CET — Control-flow Enforcement Technology (.NET 9)](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-9/runtime#control-flow-enforcement-technology) — default-on shadow stack on Windows.
 - [Tiered compilation](https://learn.microsoft.com/dotnet/core/runtime-config/compilation) — how tiers and quick-JIT interact.
 - [Performance improvements in .NET 10 — Stephen Toub](https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-10/) — current canonical perf post; supersedes the .NET 8 link for Dynamic PGO.
+- [`dotnet/runtime` — GC documentation](https://github.com/dotnet/runtime/tree/main/docs/design/coreclr/botr) — primary-source GC design notes (Server vs Workstation, DATAS, write barriers).
+- [`dotnet/runtime` — Tiered compilation / Dynamic PGO design](https://github.com/dotnet/runtime/blob/main/docs/design/features/TieredCompilation.md) — primary source for tier-0/tier-1 behaviour referenced in this section.
 - [PGO improvements: type checks and casts (.NET 9)](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-9/runtime#pgo-improvements-type-checks-and-casts) — what Dynamic PGO learned in .NET 9.
 - [Thread-pool runtime config](https://learn.microsoft.com/dotnet/core/runtime-config/threading) — `MinThreads`, hill-climbing semantics.
 - [`RuntimeHostConfigurationOption` MSBuild item](https://learn.microsoft.com/dotnet/core/runtime-config/#specify-a-configuration-value) — how project switches reach `runtimeconfig.json`.

@@ -9,7 +9,7 @@ Dense, opinionated, sourced. Targets **.NET 10 (LTS, Nov 2025)**. Assumes ASP.NE
 - **Default benchmarking framework: BenchmarkDotNet.** No fallback. Everything else is BenchmarkDotNet with bugs — `Stopwatch` loops, custom harnesses, `xUnit` "perf tests" all skip warmup, JIT tier promotion, and statistical analysis. See §1 and §15.
 - **Default live-process profiler: `dotnet-trace`.** Cross-platform, sampled, ships in the SDK toolset, feeds PerfView and Speedscope. **Fallback: PerfView on Windows** when you need full ETW depth; **JetBrains dotTrace/dotMemory** when a GUI is non-negotiable for the audience. See §1.
 - **Default container GC mode: Server GC + concurrent + DATAS.** ASP.NET Core's host turns Server GC on; .NET 9+ makes DATAS the default Server-GC sub-mode. **Fallback: Workstation GC** — and the runtime forces it for you when the container sees `< 1` logical CPU, regardless of config. See §9 and §11.
-- **Default container base image: `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`.** Distroless, non-root, ~100 MB. **Fallback: `azurelinux`** when you need a Microsoft-supported distro with a shell for debugging. See §11 and [Chapter 06 §2 — Containerization](./06-cloud-native.md#2-containerization--no-dockerfile-if-you-can-avoid-it).
+- **Default container base image: `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`.** Distroless, non-root, ~100 MB. **Fallback: `azurelinux`** when you need a Microsoft-supported distro with a shell for debugging. See §11 and [Chapter 06 §2 — Containerization](./06-cloud-native.md#2-containerization-no-dockerfile-if-you-can-avoid-it).
 - **Runtime knobs that belong here, not scattered:** GC mode, DATAS, tiered compilation, dynamic PGO, ReadyToRun, NativeAOT, container env-vars (`DOTNET_*`). The *foundational* runtime-config surface — how to set them per-process via `runtimeconfig.json` / `<RuntimeHostConfigurationOption>` / env-vars — is owned by [Chapter 01 §12 — Runtime configuration](./01-foundations.md#12-runtime-configuration); this chapter decides *which values* to ship.
 
 ---
@@ -277,14 +277,15 @@ Reflection is allocation, slow startup, and AOT-hostile. Most reasons to use it 
 
 **Sources:**
 - Konrad Kokosa, *Pro .NET Memory Management* (Apress, 2018, ISBN 978-1-4842-4026-7) — https://prodotnetmemory.com/ — the definitive book on the runtime memory model, GC heap layout, and pause-time analysis.
-- Maoni Stephens (.NET GC architect) on GC internals — https://maoni0.medium.com/
+- Maoni Stephens (.NET GC architect) on GC internals — https://devblogs.microsoft.com/dotnet/author/maoni/
+- dotnet/runtime — GC design docs — https://github.com/dotnet/runtime/tree/main/docs/design/coreclr/botr (see `garbage-collection.md`).
 - Stephen Toub, "Performance Improvements in .NET 9" (DATAS explainer) — https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-9/
 - GC fundamentals: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
 - Workstation vs Server GC (defaults, single-CPU rule): https://learn.microsoft.com/dotnet/standard/garbage-collection/workstation-server-gc
 - Latency modes: https://learn.microsoft.com/dotnet/standard/garbage-collection/latency
 - GC configuration knobs (`Server`, `DynamicAdaptationMode`, `HeapHardLimit*`, `RetainVM`): https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector
 - Process-level runtime config wiring for these knobs → [Chapter 01 §12 — Runtime configuration](./01-foundations.md#12-runtime-configuration).
-- Pod-level memory requests/limits and QoS class that the GC reads → [Chapter 06 §3 — Kubernetes / AKS](./06-cloud-native.md#3-kubernetes--aks--probes-limits-gc-shutdown).
+- Pod-level memory requests/limits and QoS class that the GC reads → [Chapter 06 §3 — Kubernetes / AKS](./06-cloud-native.md#3-kubernetes-aks-probes-limits-gc-shutdown).
 
 ---
 
@@ -320,7 +321,7 @@ Reflection is allocation, slow startup, and AOT-hostile. Most reasons to use it 
 
 There is **no universal "perf-tuned" env-var set**. The runtime defaults are good. Each tunable below moves a specific axis (startup vs steady-state vs memory) and can regress the others. Decide per service, then bake into the image. (**Env-var prefix:** `DOTNET_` is the standardized prefix since .NET 6; the old `COMPlus_` names still work but new code should use `DOTNET_`.)
 
-**Default base image, decided here:** **`mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`** — distroless, non-root (UID 1654), ~100 MB, no shell, smaller CVE surface. **Fallback: `azurelinux`** when you need a Microsoft-supported distro that includes a shell for in-container debugging; **`alpine`** only when image size dominates and you've audited native interop for musl. The Dockerfile baseline that wires this image into a multi-stage SDK build belongs to [Chapter 06 §2 — Containerization](./06-cloud-native.md#2-containerization--no-dockerfile-if-you-can-avoid-it); this chapter only picks the runtime knobs that go into the `ENV` lines.
+**Default base image, decided here:** **`mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`** — distroless, non-root (UID 1654), ~100 MB, no shell, smaller CVE surface. **Fallback: `azurelinux`** when you need a Microsoft-supported distro that includes a shell for in-container debugging; **`alpine`** only when image size dominates and you've audited native interop for musl. The Dockerfile baseline that wires this image into a multi-stage SDK build belongs to [Chapter 06 §2 — Containerization](./06-cloud-native.md#2-containerization-no-dockerfile-if-you-can-avoid-it); this chapter only picks the runtime knobs that go into the `ENV` lines.
 
 **Minimal Dockerfile (no tuning, just sane base):**
 
@@ -375,8 +376,8 @@ ENV DOTNET_GCHeapHardLimitPercent=75
 - SDK container publish: https://learn.microsoft.com/dotnet/core/docker/publish-as-container
 - Adam Sitnik on container env-var benchmarking — https://adamsitnik.com/
 - How to *set* these env-vars per host (`runtimeconfig.json`, `<RuntimeHostConfigurationOption>`, `ENV` precedence) → [Chapter 01 §12 — Runtime configuration](./01-foundations.md#12-runtime-configuration).
-- Dockerfile / chiseled-image baseline that consumes these env-vars → [Chapter 06 §2 — Containerization](./06-cloud-native.md#2-containerization--no-dockerfile-if-you-can-avoid-it).
-- Pod sizing, QoS class, and the `cpu` requests/limits that the GC reads → [Chapter 06 §3 — Kubernetes / AKS](./06-cloud-native.md#3-kubernetes--aks--probes-limits-gc-shutdown).
+- Dockerfile / chiseled-image baseline that consumes these env-vars → [Chapter 06 §2 — Containerization](./06-cloud-native.md#2-containerization-no-dockerfile-if-you-can-avoid-it).
+- Pod sizing, QoS class, and the `cpu` requests/limits that the GC reads → [Chapter 06 §3 — Kubernetes / AKS](./06-cloud-native.md#3-kubernetes-aks-probes-limits-gc-shutdown).
 
 ---
 
@@ -407,7 +408,7 @@ ENV DOTNET_GCHeapHardLimitPercent=75
 **Sources:**
 - `LoggerMessage` source generator: https://learn.microsoft.com/dotnet/core/extensions/logger-message-generator
 - High-performance logging: https://learn.microsoft.com/dotnet/core/extensions/high-performance-logging
-- Logging primitives, `ILogger<T>`, and source-generated loggers as the language baseline → [Chapter 01 — foundations](./01-foundations.md#chapter-01--foundations).
+- Logging primitives, `ILogger<T>`, and source-generated loggers as the language baseline → [Chapter 01 — foundations §10 Source generators](./01-foundations.md#10-source-generators) (chapter-level ownership in [`coverage-map.md`](../coverage-map.md#chapter-01-foundations)).
 
 ---
 
@@ -544,16 +545,20 @@ BDN measures *steady-state*. Startup wins from R2R, NativeAOT, and source genera
 - **Diagnostic CLI tools** (`dotnet-counters`, `dotnet-trace`, `dotnet-dump`, `dotnet-gcdump`). https://learn.microsoft.com/dotnet/core/diagnostics/
 - **PerfView**. https://github.com/microsoft/perfview
 
-### Community / people to follow
+---
+
+## Further reading (non-normative)
+
+The list below is community/practitioner pointers, not part of the canonical `Sources:` block above. Use them for depth, war stories, and benchmarks; rules in the chapter body still come from the authoritative sources.
+
 - **Stephen Toub** (.NET libraries lead) — devblogs posts above; the source of truth.
 - **Adam Sitnik** (BenchmarkDotNet maintainer, .NET perf team) — https://adamsitnik.com/ — pooling, BDN, micro-opt patterns.
 - **Andrey Akinshin** (BenchmarkDotNet lead maintainer) — https://aakinshin.net/ — author of *Pro .NET Benchmarking: The Art of Performance Measurement* (Apress, 2019, ISBN 978-1-4842-4940-6); the reference on BDN methodology, statistical analysis, and benchmark pitfalls.
 - **Ben Adams** (Illyriad Games / .NET community) — https://github.com/benaadams — real-world high-throughput .NET service perf, Kestrel/ASP.NET Core internals, allocation hunting.
-- **Maoni Stephens** (.NET GC architect) — https://maoni0.medium.com/ — anything about GC internals.
+- **Maoni Stephens** (.NET GC architect) — https://devblogs.microsoft.com/dotnet/author/maoni/ — anything about GC internals.
 - **Stephen Cleary** — https://blog.stephencleary.com/ — async / `Task` semantics, `ValueTask`, threading. Author of *Concurrency in C# Cookbook*.
 - **Andrew Lock** — https://andrewlock.net/ — ASP.NET Core internals, source generators, deployment.
 - **David Fowler** (.NET architect) — Twitter/X and dotnet/aspnetcore — Pipelines, channels, ASP.NET Core perf patterns.
-- **Nick Chapsas** — YouTube *KeepCoding* — accessible perf walkthroughs and BenchmarkDotNet demos.
 - **Konrad Kokosa — *Pro .NET Memory Management*** (Apress, 2018, still the definitive book on the runtime memory model and GC). Companion site: https://prodotnetmemory.com/
 - **Sasha Goldshtein**, **Ben Watson — *Writing High-Performance .NET Code*** (2nd ed.) — practical perf engineering reference.
 - **Marc Gravell** — protobuf-net, Pipelines, Dapper perf.

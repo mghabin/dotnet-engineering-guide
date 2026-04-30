@@ -671,7 +671,7 @@ Sources:
 - Andrew Lock — https://andrewlock.net/ (config, startup, DbContext lifetime, HybridCache)
 - Jimmy Bogard — https://www.jimmybogard.com/ (outbox, CQRS, repository critique)
 - Khalid Abuhakmeh — https://khalidabuhakmeh.com/ (EF + Dapper interop)
-- Nick Chapsas — https://nickchapsas.com/ and YouTube (perf, Dapper vs EF benchmarks)
+- Nick Chapsas — https://nickchapsas.com/ (perf, Dapper vs EF benchmarks)
 - Meziantou — https://www.meziantou.net/ (async, Data Protection, column encryption)
 - Steve Gordon — https://www.stevejgordon.co.uk/ (async, caching, HybridCache internals)
 - David Fowler — gists on `TransactionScope`, async pitfalls — https://gist.github.com/davidfowl

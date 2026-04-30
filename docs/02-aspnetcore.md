@@ -934,7 +934,6 @@ Sources:
 - [Andrew Lock — andrewlock.net](https://andrewlock.net/) — deep, careful dives on middleware, auth, configuration, source generators. The reference blog for ASP.NET Core internals.
 - [David Fowler — gists and talks](https://gist.github.com/davidfowl) — especially [davidfowl/AspNetCoreDiagnosticScenarios](https://github.com/davidfowl/AspNetCoreDiagnosticScenarios): async/await, `HttpClient`, and threading traps straight from the architect.
 - [Khalid Abuhakmeh — khalidabuhakmeh.com](https://khalidabuhakmeh.com/) — pragmatic tips, Minimal APIs, tooling.
-- [Nick Chapsas — YouTube](https://www.youtube.com/@nickchapsas) — current .NET features explained quickly; good for "what changed in the latest preview".
 - [Steve Gordon — stevejgordon.co.uk](https://www.stevejgordon.co.uk/) and NDC talks — `HttpClientFactory` internals, performance, diagnostics.
 - [Jimmy Bogard — jimmybogard.com](https://www.jimmybogard.com/) — domain modeling, MediatR, vertical slice architecture, ProblemDetails patterns.
 - [Gérald Barré (Meziantou) — meziantou.net](https://www.meziantou.net/) — edge cases, analyzers, source generators, niche perf.

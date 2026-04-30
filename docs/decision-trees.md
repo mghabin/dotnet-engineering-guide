@@ -139,7 +139,7 @@ flowchart TD
     D -->|Mixed, want first paint fast<br/>then offload| H[Interactive Auto<br/>only if both modes supported — ch07]
 ```
 
-References: [`docs/07-client.md#part-1--blazor-unified-web-app-model`](./07-client.md#part-1--blazor-unified-web-app-model).
+References: [`docs/07-client.md#part-1--blazor-unified-web-app-model`](./07-client.md#part-1-blazor-unified-web-app-model).
 
 ---
 
@@ -167,7 +167,7 @@ flowchart TD
     D -->|One platform dominates,<br/>platform-only APIs| I[Native SDK — ch07]
 ```
 
-References: [`docs/07-client.md#part-2--maui-net-10`](./07-client.md#part-2--maui-net-10).
+References: [`docs/07-client.md#part-2--maui-net-10`](./07-client.md#part-2-maui-net-10).
 
 ---
 
@@ -244,7 +244,7 @@ flowchart TD
     F -->|No| C
 ```
 
-References: [`docs/05-performance.md#8-jit--aot`](./05-performance.md#8-jit--aot).
+References: [`docs/05-performance.md#8-jit--aot`](./05-performance.md#8-jit-aot).
 
 ---
 
@@ -290,7 +290,7 @@ flowchart TD
     D -->|No, multiple endpoints / policies| C
 ```
 
-References: [`docs/01-foundations.md#5-di--lifetimes`](./01-foundations.md#5-di--lifetimes), [`docs/02-aspnetcore.md#11-httpclient`](./02-aspnetcore.md#11-httpclient).
+References: [`docs/01-foundations.md#5-di--lifetimes`](./01-foundations.md#5-di-lifetimes), [`docs/02-aspnetcore.md#11-httpclient`](./02-aspnetcore.md#11-httpclient).
 
 ---
 
@@ -332,19 +332,20 @@ References: [`docs/02-aspnetcore.md#10-authnauthz`](./02-aspnetcore.md#10-authna
 - Cost of wrong call: caching whole HTTP responses when you needed a domain
   object; rolling your own L1+L2 with stampede protection that HybridCache
   ships out of the box.
-- Default per `ch03`: `OutputCache` for HTTP responses; `HybridCache` for
-  app-data with L1+L2 and stampede protection; `IDistributedCache` only as
-  a plain distributed K/V.
+- Owner split: **`OutputCache` is owned by [`ch02 §9`](./02-aspnetcore.md#9-output-caching)**
+  (HTTP-response middleware). **`HybridCache` and `IDistributedCache` are
+  owned by [`ch03 §14`](./03-data.md#14-caching)** (data-shaped caches —
+  the matrix in ch03 §14 is for app data, not HTTP responses).
 
 ```mermaid
 flowchart TD
     A[Need a cache] --> B{What is being cached?}
-    B -->|Whole HTTP response<br/>by route + vary| C[OutputCache — ch03]
-    B -->|Domain object / query result<br/>multi-instance app| D[HybridCache<br/>L1 in-proc + L2 distributed<br/>+ stampede protection — ch03]
-    B -->|Plain distributed K/V<br/>session, idempotency keys| E[IDistributedCache — ch03]
+    B -->|Whole HTTP response<br/>by route + vary| C[OutputCache — ch02 §9]
+    B -->|Domain object / query result<br/>multi-instance app| D[HybridCache<br/>L1 in-proc + L2 distributed<br/>+ stampede protection — ch03 §14]
+    B -->|Plain distributed K/V<br/>session, idempotency keys| E[IDistributedCache — ch03 §14]
 ```
 
-References: [`docs/03-data.md#14-caching`](./03-data.md#14-caching), [`docs/02-aspnetcore.md#9-output-caching`](./02-aspnetcore.md#9-output-caching).
+References: [`docs/02-aspnetcore.md#9-output-caching`](./02-aspnetcore.md#9-output-caching) (OutputCache owner), [`docs/03-data.md#14-caching`](./03-data.md#14-caching) (HybridCache / `IDistributedCache` owner).
 
 ---
 
@@ -369,7 +370,7 @@ flowchart TD
     F -->|Yes| G[BestEffort — never in prod — ch06]
 ```
 
-References: [`docs/06-cloud-native.md#3-kubernetes--aks--probes-limits-gc-shutdown`](./06-cloud-native.md#3-kubernetes--aks--probes-limits-gc-shutdown).
+References: [`docs/06-cloud-native.md#3-kubernetes--aks--probes-limits-gc-shutdown`](./06-cloud-native.md#3-kubernetes-aks-probes-limits-gc-shutdown).
 
 ---
 
@@ -427,7 +428,7 @@ flowchart TD
     F -->|No| H[Configure connection from<br/>cluster config / Key Vault — ch06 §4]
 ```
 
-References: [`docs/06-cloud-native.md#1-net-aspire--what-it-is-what-it-isnt`](./06-cloud-native.md#1-net-aspire--what-it-is-what-it-isnt).
+References: [`docs/06-cloud-native.md#1-net-aspire--what-it-is-what-it-isnt`](./06-cloud-native.md#1-net-aspire-what-it-is-what-it-isnt).
 
 ---
 

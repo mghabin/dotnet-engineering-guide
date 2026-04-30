@@ -42,18 +42,18 @@ Source: [`docs/01-foundations.md`](./docs/01-foundations.md).
 
 ### References (does not re-decide)
 
-- DI usage inside endpoints and filters → [Chapter 02 — aspnetcore](#chapter-02--aspnetcore).
-- EF Core `DbContext` lifetime and pooling → [Chapter 03 — data](#chapter-03--data).
-- Hosted-service testing patterns → [Chapter 04 — testing](#chapter-04--testing).
-- NativeAOT, GC tuning specifics, container env-vars → [Chapter 05 — performance](#chapter-05--performance).
-- OTLP exporters and `ServiceDefaults` wiring → [Chapter 06 — cloud-native](#chapter-06--cloud-native).
-- Blazor / MAUI client lifetimes and render modes → [Chapter 07 — client](#chapter-07--client).
+- DI usage inside endpoints and filters → [Chapter 02 — aspnetcore](#chapter-02-aspnetcore).
+- EF Core `DbContext` lifetime and pooling → [Chapter 03 — data](#chapter-03-data).
+- Hosted-service testing patterns → [Chapter 04 — testing](#chapter-04-testing).
+- NativeAOT, GC tuning specifics, container env-vars → [Chapter 05 — performance](#chapter-05-performance).
+- OTLP exporters and `ServiceDefaults` wiring → [Chapter 06 — cloud-native](#chapter-06-cloud-native).
+- Blazor / MAUI client lifetimes and render modes → [Chapter 07 — client](#chapter-07-client).
 
 ### Cross-links
 
-- Logging primitives owned here ↔ telemetry export owned in [06](#chapter-06--cloud-native) and meter design in [05](#chapter-05--performance).
-- DI lifetimes owned here ↔ endpoint DI surface in [02](#chapter-02--aspnetcore) ↔ `DbContext` scoping in [03](#chapter-03--data).
-- Options pattern owned here ↔ secrets/config in cloud in [06](#chapter-06--cloud-native).
+- Logging primitives owned here ↔ telemetry export owned in [06](#chapter-06-cloud-native) and meter design in [05](#chapter-05-performance).
+- DI lifetimes owned here ↔ endpoint DI surface in [02](#chapter-02-aspnetcore) ↔ `DbContext` scoping in [03](#chapter-03-data).
+- Options pattern owned here ↔ secrets/config in cloud in [06](#chapter-06-cloud-native).
 
 ---
 
@@ -73,27 +73,27 @@ Source: [`docs/02-aspnetcore.md`](./docs/02-aspnetcore.md).
 - **HTTP resilience for outbound calls** (§7): `IHttpClientFactory` + `AddStandardResilienceHandler` as the single owner of retry / timeout / circuit-breaker / hedging defaults. Chapter 06 references this section, does not re-decide.
 - **`HttpClient` factory and typed clients** (§11): `AddHttpClient<T>`, named vs typed, `SocketsHttpHandler` defaults, `PooledConnectionLifetime`.
 - **OutputCache** (§9): HTTP-response caching middleware (`AddOutputCache`, policies, tag invalidation). Chapter 03's caching matrix links here for the OutputCache row.
-- **Background work in the request host** (§12): `IHostedService` / `BackgroundService` patterns, `Channel<T>` pipelines, graceful drain of in-flight work — composition lifetime owned here; the cluster-side drain contract is owned by [06 §11](#chapter-06--cloud-native).
+- **Background work in the request host** (§12): `IHostedService` / `BackgroundService` patterns, `Channel<T>` pipelines, graceful drain of in-flight work — composition lifetime owned here; the cluster-side drain contract is owned by [06 §11](#chapter-06-cloud-native).
 - **Security middleware** (§14): HTTPS redirection, HSTS, security headers, antiforgery, request-size limits, forwarded headers (paired with §15).
 - **gRPC surface** (§16): `MapGrpcService`, gRPC-Web, code-first vs proto-first, interceptors, deadlines.
 - **SignalR surface** (§17): hub authorization, backplane choice, scaling rules, sticky sessions.
-- **Health-check endpoint mapping** (§18): the in-process `MapHealthChecks` helpers and how the request host exposes them — but the **probe contract** (endpoint names, semantics, what a check may do) is owned by [06 §10](#chapter-06--cloud-native).
+- **Health-check endpoint mapping** (§18): the in-process `MapHealthChecks` helpers and how the request host exposes them — but the **probe contract** (endpoint names, semantics, what a check may do) is owned by [06 §10](#chapter-06-cloud-native).
 - Rate limiting middleware (§8), request size limits, and Kestrel surface defaults relevant to APIs.
 
 ### References (does not re-decide)
 
-- Logging primitives and source-generated loggers → [Chapter 01 — foundations](#chapter-01--foundations).
+- Logging primitives and source-generated loggers → [Chapter 01 — foundations](#chapter-01-foundations).
 - Validation libraries and model-binding edge cases → [`docs/01-foundations.md`](./docs/01-foundations.md) and `validation.md` referenced from chapter 02.
-- EF Core `DbContext` registration and async query patterns → [Chapter 03 — data](#chapter-03--data).
-- `WebApplicationFactory` integration tests → [Chapter 04 — testing](#chapter-04--testing).
-- OTel meters and application metrics → [Chapter 05 — performance](#chapter-05--performance).
-- OTLP exporters, `ServiceDefaults`, K8s probes → [Chapter 06 — cloud-native](#chapter-06--cloud-native).
+- EF Core `DbContext` registration and async query patterns → [Chapter 03 — data](#chapter-03-data).
+- `WebApplicationFactory` integration tests → [Chapter 04 — testing](#chapter-04-testing).
+- OTel meters and application metrics → [Chapter 05 — performance](#chapter-05-performance).
+- OTLP exporters, `ServiceDefaults`, K8s probes → [Chapter 06 — cloud-native](#chapter-06-cloud-native).
 
 ### Cross-links
 
-- ProblemDetails owned here ↔ EF Core exception translation in [03](#chapter-03--data).
-- JWT bearer + Entra owned here ↔ Blazor auth-state serialization in [07](#chapter-07--client).
-- OTel HTTP wiring owned here ↔ OTel application metrics in [05](#chapter-05--performance) ↔ OTLP exporters in [06](#chapter-06--cloud-native).
+- ProblemDetails owned here ↔ EF Core exception translation in [03](#chapter-03-data).
+- JWT bearer + Entra owned here ↔ Blazor auth-state serialization in [07](#chapter-07-client).
+- OTel HTTP wiring owned here ↔ OTel application metrics in [05](#chapter-05-performance) ↔ OTLP exporters in [06](#chapter-06-cloud-native).
 
 ---
 
@@ -114,17 +114,17 @@ Source: [`docs/03-data.md`](./docs/03-data.md).
 
 ### References (does not re-decide)
 
-- DI lifetimes underlying `DbContext` registration → [Chapter 01 — foundations](#chapter-01--foundations).
-- Returning `ProblemDetails` for data-layer failures → [Chapter 02 — aspnetcore](#chapter-02--aspnetcore).
-- Respawn-based test data reset and Testcontainers for SQL/Cosmos → [Chapter 04 — testing](#chapter-04--testing).
-- Span/Memory/Pipelines for high-throughput data paths → [Chapter 05 — performance](#chapter-05--performance).
-- Outbox dispatcher hosted in the cluster, message broker integrations → [Chapter 06 — cloud-native](#chapter-06--cloud-native).
+- DI lifetimes underlying `DbContext` registration → [Chapter 01 — foundations](#chapter-01-foundations).
+- Returning `ProblemDetails` for data-layer failures → [Chapter 02 — aspnetcore](#chapter-02-aspnetcore).
+- Respawn-based test data reset and Testcontainers for SQL/Cosmos → [Chapter 04 — testing](#chapter-04-testing).
+- Span/Memory/Pipelines for high-throughput data paths → [Chapter 05 — performance](#chapter-05-performance).
+- Outbox dispatcher hosted in the cluster, message broker integrations → [Chapter 06 — cloud-native](#chapter-06-cloud-native).
 
 ### Cross-links
 
-- Outbox owned here ↔ broker/dispatcher topology in [06](#chapter-06--cloud-native).
-- Caching matrix owned here ↔ Data Protection key ring (separate concern) in [06](#chapter-06--cloud-native).
-- Migration bundles owned here ↔ K8s init-container / job invocation in [06](#chapter-06--cloud-native).
+- Outbox owned here ↔ broker/dispatcher topology in [06](#chapter-06-cloud-native).
+- Caching matrix owned here ↔ Data Protection key ring (separate concern) in [06](#chapter-06-cloud-native).
+- Migration bundles owned here ↔ K8s init-container / job invocation in [06](#chapter-06-cloud-native).
 
 ---
 
@@ -145,18 +145,18 @@ Source: [`docs/04-testing.md`](./docs/04-testing.md).
 
 ### References (does not re-decide)
 
-- Code under test conventions (NRT, async, DI lifetimes) → [Chapter 01 — foundations](#chapter-01--foundations).
-- Endpoint construction and ProblemDetails contracts being asserted → [Chapter 02 — aspnetcore](#chapter-02--aspnetcore).
-- EF Core fixtures, migrations, and Cosmos provider behavior → [Chapter 03 — data](#chapter-03--data).
-- BenchmarkDotNet and perf assertions → [Chapter 05 — performance](#chapter-05--performance).
-- Aspire AppHost wiring under test → [Chapter 06 — cloud-native](#chapter-06--cloud-native).
-- Blazor `bUnit` and MAUI device-test specifics → [Chapter 07 — client](#chapter-07--client).
+- Code under test conventions (NRT, async, DI lifetimes) → [Chapter 01 — foundations](#chapter-01-foundations).
+- Endpoint construction and ProblemDetails contracts being asserted → [Chapter 02 — aspnetcore](#chapter-02-aspnetcore).
+- EF Core fixtures, migrations, and Cosmos provider behavior → [Chapter 03 — data](#chapter-03-data).
+- BenchmarkDotNet and perf assertions → [Chapter 05 — performance](#chapter-05-performance).
+- Aspire AppHost wiring under test → [Chapter 06 — cloud-native](#chapter-06-cloud-native).
+- Blazor `bUnit` and MAUI device-test specifics → [Chapter 07 — client](#chapter-07-client).
 
 ### Cross-links
 
-- `DistributedApplicationTestingBuilder` owned here ↔ Aspire AppHost in [06](#chapter-06--cloud-native).
-- `WebApplicationFactory` owned here ↔ JWT bearer + ProblemDetails in [02](#chapter-02--aspnetcore).
-- Respawn owned here ↔ EF migrations in [03](#chapter-03--data).
+- `DistributedApplicationTestingBuilder` owned here ↔ Aspire AppHost in [06](#chapter-06-cloud-native).
+- `WebApplicationFactory` owned here ↔ JWT bearer + ProblemDetails in [02](#chapter-02-aspnetcore).
+- Respawn owned here ↔ EF migrations in [03](#chapter-03-data).
 
 ---
 
@@ -176,17 +176,17 @@ Source: [`docs/05-performance.md`](./docs/05-performance.md).
 
 ### References (does not re-decide)
 
-- `async`/`await`, `ValueTask`, source generators as the language baseline → [Chapter 01 — foundations](#chapter-01--foundations).
-- HTTP-pipeline OTel instrumentation that produces transport metrics → [Chapter 02 — aspnetcore](#chapter-02--aspnetcore).
-- EF Core query-shape choices that dominate allocations → [Chapter 03 — data](#chapter-03--data).
-- Microbenchmark fixtures vs integration perf tests → [Chapter 04 — testing](#chapter-04--testing).
-- OTLP exporters, collector, and K8s CPU/QoS that the metrics are read from → [Chapter 06 — cloud-native](#chapter-06--cloud-native).
+- `async`/`await`, `ValueTask`, source generators as the language baseline → [Chapter 01 — foundations](#chapter-01-foundations).
+- HTTP-pipeline OTel instrumentation that produces transport metrics → [Chapter 02 — aspnetcore](#chapter-02-aspnetcore).
+- EF Core query-shape choices that dominate allocations → [Chapter 03 — data](#chapter-03-data).
+- Microbenchmark fixtures vs integration perf tests → [Chapter 04 — testing](#chapter-04-testing).
+- OTLP exporters, collector, and K8s CPU/QoS that the metrics are read from → [Chapter 06 — cloud-native](#chapter-06-cloud-native).
 
 ### Cross-links
 
-- App metrics meters owned here ↔ OTLP exporters in [06](#chapter-06--cloud-native).
-- Container env-vars owned here ↔ Dockerfile baseline in [06](#chapter-06--cloud-native).
-- NativeAOT owned here ↔ source generators in [01](#chapter-01--foundations).
+- App metrics meters owned here ↔ OTLP exporters in [06](#chapter-06-cloud-native).
+- Container env-vars owned here ↔ Dockerfile baseline in [06](#chapter-06-cloud-native).
+- NativeAOT owned here ↔ source generators in [01](#chapter-01-foundations).
 
 ---
 
@@ -199,8 +199,8 @@ Source: [`docs/06-cloud-native.md`](./docs/06-cloud-native.md).
 - .NET Aspire AppHost composition and client integrations — **Aspire 9.x** for `net8.0` / `net9.0` services, **Aspire 13** for `net10.0` services (`Aspire.Hosting.*`, `Aspire.*`).
 - `ServiceDefaults` shared project (§1): OTel wiring, default health checks, resilience handlers, service discovery defaults.
 - **Configuration in cluster** (§4): ConfigMap + CSI Key Vault driver as the configuration substrate; `appsettings.Production.json` rejected. Foundations §6 owns the in-process options pattern; this chapter owns where the bytes come from in the cluster.
-- **Resilience pipeline defaults at the platform layer** (§6): Polly v8 standard-pipeline composition for non-HTTP resources (queues, blobs, repositories) and the rationale for keeping HTTP resilience in [02 §7](#chapter-02--aspnetcore). HTTP retry verb policy is owned by ch02; this chapter does not re-decide it.
-- **Health-check probe contract** (§10): `/health/live`, `/health/ready`, `/health/startup` endpoint names, semantics, what each probe may do, and the K8s probe wiring — matches the Aspire `ServiceDefaults` mapping. Chapter 02 §18 only owns the in-process `MapHealthChecks` plumbing and links here for the contract.
+- **Resilience pipeline defaults at the platform layer** (§6): Polly v8 standard-pipeline composition for non-HTTP resources (queues, blobs, repositories) and the rationale for keeping HTTP resilience in [02 §7](#chapter-02-aspnetcore). HTTP retry verb policy is owned by ch02; this chapter does not re-decide it.
+- **Health-check probe contract** (§10): `/health/live`, `/health/ready`, `/health/startup` endpoint names, semantics, what each probe may do, and the K8s probe wiring. Aspire `ServiceDefaults` ships **only** `/health` + `/alive` and **only in Development** — production code must explicitly `MapHealthChecks` for `/health/live`, `/health/ready`, `/health/startup` (see [ch06 §10](#chapter-06-cloud-native) and the [aspire.dev ServiceDefaults reference](https://aspire.dev/fundamentals/service-defaults/)). Chapter 02 §18 only owns the in-process `MapHealthChecks` plumbing and links here for the contract.
 - Kubernetes runtime contract: liveness / readiness / startup probes, QoS class, the CPU-limits-considered-harmful stance, requests sizing.
 - Service discovery via `Microsoft.Extensions.ServiceDiscovery` and `HttpClient` integration (§7).
 - **Networking** (§13): HTTP/2 + HTTP/3 enablement, forwarded headers in cluster, mTLS via service mesh, TLS termination boundary.
@@ -208,25 +208,25 @@ Source: [`docs/06-cloud-native.md`](./docs/06-cloud-native.md).
 - **Secrets & identity** (§8): Workload Identity + Federated Identity Credentials only — no client secrets, no pod-identity v1, no service-principal passwords on disk.
 - ASP.NET Core Data Protection key-ring storage (Azure Blob + Key Vault, or equivalent) for multi-replica deployments (§9).
 - **Graceful shutdown** (§11): `IHostApplicationLifetime`, `preStop` hook, drain order, K8s `terminationGracePeriodSeconds`. Chapter 02's background-work section composes against this contract.
-- Outbox **dispatcher** topology (hosted service / sidecar / worker pool) — the pattern itself is owned by [03](#chapter-03--data).
-- **CI/CD** (§12): reproducible image build, Sigstore/cosign signing, SBOM, scanning gate. Source-build hygiene is owned by [01 §11](#chapter-01--foundations); this chapter owns the cluster-deployment pipeline.
+- Outbox **dispatcher** topology (hosted service / sidecar / worker pool) — the pattern itself is owned by [03](#chapter-03-data).
+- **CI/CD** (§12): reproducible image build, Sigstore/cosign signing, SBOM, scanning gate. Source-build hygiene is owned by [01 §11](#chapter-01-foundations); this chapter owns the cluster-deployment pipeline.
 - **Multi-tenancy at runtime** (§14): tenant-scoped DI, per-tenant configuration / connection-string resolution, isolation expectations at the cluster boundary.
 - **Cost & efficiency** (§15): right-sizing requests, scale-to-zero suitability, image size baseline, the cluster-level levers a service team owns.
-- Dockerfile baseline for .NET 10 images, including the runtime env-vars selected in [05](#chapter-05--performance).
+- Dockerfile baseline for .NET 10 images, including the runtime env-vars selected in [05](#chapter-05-performance).
 
 ### References (does not re-decide)
 
-- Logging primitives feeding the OTLP log exporter → [Chapter 01 — foundations](#chapter-01--foundations).
-- Endpoint surface and OTel HTTP instrumentation → [Chapter 02 — aspnetcore](#chapter-02--aspnetcore).
-- EF migration bundles invoked as init-containers / Jobs → [Chapter 03 — data](#chapter-03--data).
-- `DistributedApplicationTestingBuilder` and integration-test wiring → [Chapter 04 — testing](#chapter-04--testing).
-- GC and runtime env-vars copied into the Dockerfile → [Chapter 05 — performance](#chapter-05--performance).
+- Logging primitives feeding the OTLP log exporter → [Chapter 01 — foundations](#chapter-01-foundations).
+- Endpoint surface and OTel HTTP instrumentation → [Chapter 02 — aspnetcore](#chapter-02-aspnetcore).
+- EF migration bundles invoked as init-containers / Jobs → [Chapter 03 — data](#chapter-03-data).
+- `DistributedApplicationTestingBuilder` and integration-test wiring → [Chapter 04 — testing](#chapter-04-testing).
+- GC and runtime env-vars copied into the Dockerfile → [Chapter 05 — performance](#chapter-05-performance).
 
 ### Cross-links
 
-- Aspire `ServiceDefaults` owned here ↔ OTel HTTP wiring in [02](#chapter-02--aspnetcore) ↔ app metrics in [05](#chapter-05--performance).
-- K8s probes owned here ↔ `IHostApplicationLifetime` / health checks contract in [01](#chapter-01--foundations).
-- Data Protection key ring owned here ↔ cookie/antiforgery surfaces in [02](#chapter-02--aspnetcore) and [07](#chapter-07--client).
+- Aspire `ServiceDefaults` owned here ↔ OTel HTTP wiring in [02](#chapter-02-aspnetcore) ↔ app metrics in [05](#chapter-05-performance).
+- K8s probes owned here ↔ `IHostApplicationLifetime` / health checks contract in [01](#chapter-01-foundations).
+- Data Protection key ring owned here ↔ cookie/antiforgery surfaces in [02](#chapter-02-aspnetcore) and [07](#chapter-07-client).
 
 ---
 
@@ -246,16 +246,16 @@ Source: [`docs/07-client.md`](./docs/07-client.md).
 
 ### References (does not re-decide)
 
-- DI lifetimes, NRT, async fundamentals as language baseline → [Chapter 01 — foundations](#chapter-01--foundations).
-- JWT bearer + Entra token shapes the client consumes → [Chapter 02 — aspnetcore](#chapter-02--aspnetcore).
-- `bUnit` / device-test plumbing → [Chapter 04 — testing](#chapter-04--testing).
-- Data Protection key ring backing Blazor auth cookies in multi-replica → [Chapter 06 — cloud-native](#chapter-06--cloud-native).
+- DI lifetimes, NRT, async fundamentals as language baseline → [Chapter 01 — foundations](#chapter-01-foundations).
+- JWT bearer + Entra token shapes the client consumes → [Chapter 02 — aspnetcore](#chapter-02-aspnetcore).
+- `bUnit` / device-test plumbing → [Chapter 04 — testing](#chapter-04-testing).
+- Data Protection key ring backing Blazor auth cookies in multi-replica → [Chapter 06 — cloud-native](#chapter-06-cloud-native).
 
 ### Cross-links
 
-- Auth-state serialization owned here ↔ JWT/Entra validation in [02](#chapter-02--aspnetcore).
-- Antiforgery on `EditForm` owned here ↔ antiforgery middleware in [02](#chapter-02--aspnetcore).
-- Render-mode decision table owned here ↔ Data Protection key ring in [06](#chapter-06--cloud-native).
+- Auth-state serialization owned here ↔ JWT/Entra validation in [02](#chapter-02-aspnetcore).
+- Antiforgery on `EditForm` owned here ↔ antiforgery middleware in [02](#chapter-02-aspnetcore).
+- Render-mode decision table owned here ↔ Data Protection key ring in [06](#chapter-06-cloud-native).
 
 ---
 
@@ -272,13 +272,13 @@ Sources: [`patterns/anti-patterns.md`](./patterns/anti-patterns.md), [`patterns/
 
 ### References (does not re-decide)
 
-- Subsystem-specific anti-patterns stay in their owning chapter (e.g., EF tracking misuse stays in [03](#chapter-03--data); captured-async pitfalls stay in [01](#chapter-01--foundations)).
+- Subsystem-specific anti-patterns stay in their owning chapter (e.g., EF tracking misuse stays in [03](#chapter-03-data); captured-async pitfalls stay in [01](#chapter-01-foundations)).
 - Per-claim citations for chapter-level rules stay inline in the owning chapter, not in `references.md`.
 
 ### Cross-links
 
 - `patterns/patterns.md` ↔ chapters 01–07 (each named pattern points back to its owning chapter for the binding rule).
-- `patterns/monorepo.md` ↔ [04 — testing](#chapter-04--testing) for fan-out test selection and [06 — cloud-native](#chapter-06--cloud-native) for image-build topology.
+- `patterns/monorepo.md` ↔ [04 — testing](#chapter-04-testing) for fan-out test selection and [06 — cloud-native](#chapter-06-cloud-native) for image-build topology.
 
 ---
 
