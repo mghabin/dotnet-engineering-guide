@@ -24,6 +24,13 @@ Audience: senior .NET engineers shipping services on **.NET 10 / EF Core 10** (L
 - Don't "EF everything" — translating a 7-table reporting query through LINQ is a code review tax on your team forever.
 - Don't build your own micro-ORM. Dapper exists. It's 2 files.
 
+Sources:
+- EF Core docs — overview: https://learn.microsoft.com/ef/core/
+- Dapper: https://github.com/DapperLib/Dapper
+- `Microsoft.Data.SqlClient`: https://learn.microsoft.com/sql/connect/ado-net/microsoft-ado-net-sql-server
+- Npgsql: https://www.npgsql.org/
+- Jon P Smith — *Entity Framework Core in Action*: https://www.thereformedprogrammer.net/
+
 ---
 
 ## 2. EF Core core practices (EF10)
@@ -58,8 +65,17 @@ var orders = await db.Orders
 ```
 
 - **Project to DTOs** for reads. `Include` is for write-path aggregates you're about to mutate.
-- **Split queries** (`AsSplitQuery()`) when including multiple collections — avoids Cartesian explosion. Configure globally via `UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)` if that's your default.
 - **Cartesian explosion warning** is on by default; don't suppress it, fix the query.
+
+#### Split vs single queries
+
+| Use | When |
+|---|---|
+| **`AsSplitQuery()`** | `Include` of two or more *collection* navigations on the principal; row-count blowup on a single query plan would dominate I/O. |
+| **`AsSingleQuery()`** | Single round-trip matters (latency-sensitive endpoint), point lookups, or you need a consistent snapshot — multiple statements can see different rows under read-committed. |
+
+- If you set `UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)` globally, keep `AsSingleQuery()` as the per-query escape hatch.
+- On EF Core 9 and earlier, split queries require a **stable, unique ordering** on the principal — add `OrderBy(x => x.Id)` if your query lacks one, or pagination becomes non-deterministic. EF Core 10 relaxes this for many shapes, but adding the ordering remains the safe default.
 
 ### IQueryable boundaries
 
@@ -74,7 +90,9 @@ private static readonly Func<AppDb, Guid, CancellationToken, Task<User?>> GetUse
         db.Users.AsNoTracking().FirstOrDefault(u => u.Id == id));
 ```
 
-Use for ultra-hot, parameterized lookups. Modern EF query cache makes the delta smaller than it once was, but compiled queries still win on allocation.
+- The lambda body uses the *synchronous* `FirstOrDefault` even though the compiled delegate is async — `EF.CompileAsyncQuery` translates the expression and returns a `Task<T>`. Don't write `FirstOrDefaultAsync` inside; it won't compile as an expression.
+- The `CancellationToken` parameter is honored by the async pipeline, but the underlying expression doesn't see it — cancellation flows through ADO.NET when the delegate is invoked. Pass it; don't rely on inner LINQ to observe it.
+- Use for ultra-hot, parameterized lookups. The modern EF query cache makes the delta smaller than it once was, but compiled queries still win on allocation.
 
 ### Raw SQL escape hatch
 
@@ -88,6 +106,23 @@ var rows = await db.Users
 - Use `FromSqlInterpolated` / `ExecuteSqlInterpolated` — they parameterize. **Never** concatenate user input into `FromSqlRaw`.
 - EF10: `ExecuteUpdateAsync` now accepts regular C# lambdas (not just expression trees) — use it for set-based updates without loading entities.
 
+> **Caveat — `ExecuteUpdateAsync` / `ExecuteDeleteAsync` bypass the change tracker, `SaveChanges` interceptors, the outbox, and any `ISaveChangesInterceptor` you rely on for auditing or domain events.** Tracked entities in the same context go stale silently. Rules:
+>
+> - Use them for **infrastructural** set-based ops (TTL purges, status flips, GDPR scrubs) where you intentionally want to skip materialization.
+> - **Do not** use them on aggregates whose write path emits domain events / outbox rows from the change tracker — you'll publish nothing.
+> - If the same context already loaded affected rows, call `ChangeTracker.Clear()` or reload entries (`entry.ReloadAsync()`) before further work.
+
+### Modeling: complex types vs owned entities vs primary constructors
+
+| Use | When |
+|---|---|
+| **Complex type** (EF 8+, `ComplexProperty`) | Value object with **no identity** and no separate lifecycle (`Address`, `Money`, `DateRange`). Stored inline; cannot be queried as a top-level set. Supports records and shared instances. |
+| **Owned entity** (`OwnsOne`/`OwnsMany`) | Dependent has identity, ownership semantics, or you need a separate table / collection. Cosmos provider treats related types as **owned by default**. |
+| **Aggregate root** | Has its own identity, lifecycle, and is a query/aggregation boundary. |
+
+- Prefer **complex types** for new value-object modeling on relational providers — they replace the owned-entity-as-value-object hack and don't carry a hidden shadow key.
+- **Primary constructors** (C# 12+): fine on DTOs, records, value objects, and complex types. On **EF tracked entities**, only use them after you've verified materialization works for your provider, that lazy-loading proxies (if any) can still subclass, and that navigation properties remain settable. The safe default is a parameterless ctor (public or private) plus init-only properties.
+
 ### ChangeTracker hygiene
 
 - Short-lived contexts. No long-lived tracked graphs.
@@ -99,6 +134,17 @@ var rows = await db.Users
 - One implicit transaction per call (unless ambient). Batches inserts/updates/deletes into minimal round-trips on SQL Server and PostgreSQL.
 - Returns affected row count — check it for optimistic concurrency on raw updates.
 - Throws `DbUpdateConcurrencyException` / `DbUpdateException` — catch the *specific* ones.
+
+Sources:
+- EF Core 10 — what's new: https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew
+- EF Core performance: https://learn.microsoft.com/ef/core/performance/
+- Single vs split queries: https://learn.microsoft.com/ef/core/querying/single-split-queries
+- `EF.CompileAsyncQuery`: https://learn.microsoft.com/dotnet/api/microsoft.entityframeworkcore.ef.compileasyncquery
+- `ExecuteUpdate` / `ExecuteDelete`: https://learn.microsoft.com/ef/core/saving/execute-insert-update-delete
+- Complex types (EF 8 release notes): https://learn.microsoft.com/ef/core/what-is-new/ef-core-8.0/whatsnew#value-objects-using-complex-types
+- EF team blog: https://devblogs.microsoft.com/dotnet/category/entity-framework/
+- Jon P Smith — entity construction & DDD with EF: https://www.thereformedprogrammer.net/
+- Andrew Lock — EF Core deep-dives: https://andrewlock.net/
 
 ---
 
@@ -128,6 +174,11 @@ builder.Services.AddDbContextPool<AppDb>(o => o.UseSqlServer(cs), poolSize: 128)
 - **Trade-offs**: context must have a simple constructor, any instance state leaks across requests if you're not careful, and interceptors/loggers captured by the first instance stick. Prefer stateless contexts.
 - `AddPooledDbContextFactory<T>` combines pooling + factory for Blazor/workers.
 
+Sources:
+- `DbContext` lifetime: https://learn.microsoft.com/ef/core/dbcontext-configuration/
+- `DbContext` pooling: https://learn.microsoft.com/ef/core/performance/advanced-performance-topics#dbcontext-pooling
+- Andrew Lock on `AddDbContextFactory`: https://andrewlock.net/
+
 ---
 
 ## 4. Migrations
@@ -147,6 +198,33 @@ builder.Services.AddDbContextPool<AppDb>(o => o.UseSqlServer(cs), poolSize: 128)
 
 - Named query filters: multiple global filters (e.g. soft-delete + tenant) toggleable by name — use `IgnoreQueryFilters("SoftDelete")` selectively instead of all-or-nothing.
 - Native JSON column type on SQL Server/Azure SQL: prefer the `json` type over `nvarchar(max)` for new JSON-mapped properties.
+
+### Scripts vs bundles vs `Database.Migrate()`
+
+| Artifact | When |
+|---|---|
+| `dotnet ef migrations script --idempotent -o migrate.sql` | DBAs need to inspect/approve raw SQL before apply; you want to diff schema in PRs. |
+| `dotnet ef migrations bundle` (self-contained `efbundle` executable) | First-class production deployment. One artifact moves through CI/CD, no .NET SDK on the target, runs idempotently against the connection string you pass. Default for new pipelines. |
+| `context.Database.MigrateAsync()` at startup | Single-instance dev/test only. Never in multi-instance prod. |
+
+### Zero-downtime: expand → migrate → contract
+
+Schema changes ship across **multiple releases**. The deploy that introduces the change must keep the *previous* app version working.
+
+- **Expand** (release N): add new column/table as **nullable** (or with a safe default); add new index `CONCURRENTLY` (Postgres) / `WITH (ONLINE = ON)` (Azure SQL/Enterprise SQL Server); deploy schema *before* code.
+- **Dual-write / backfill** (release N+1): app writes to **both** old and new shapes; backfill job populates new column for historical rows in batches with throttling; monitor lag.
+- **Switch reads** (release N+2): app reads from new shape, still dual-writes; verify.
+- **Contract** (release N+3): drop old column / constraint / table after the previous version is fully retired and rollback window has passed.
+
+- Long backfills: chunk by primary key, commit per batch, log progress, make resumable. Never `UPDATE` a billion rows in one transaction.
+- Renames are **not** zero-downtime — model them as add-new + backfill + drop-old.
+- Adding a `NOT NULL` column with no default rewrites the whole table on most engines; ship it as nullable + backfill + tighten in a later release.
+
+Sources:
+- Applying migrations (scripts, bundles, runtime): https://learn.microsoft.com/ef/core/managing-schemas/migrations/applying
+- Migration bundles announcement: https://devblogs.microsoft.com/dotnet/announcing-ef-core-7-rc1/#migration-bundles
+- Andrew Lock — running EF migrations on startup safely: https://andrewlock.net/
+- Postgres `CREATE INDEX CONCURRENTLY`: https://www.postgresql.org/docs/current/sql-createindex.html
 
 ---
 
@@ -185,6 +263,11 @@ for (var attempt = 0; attempt < 3; attempt++)
 
 Retry is a **business decision** — don't silently last-write-wins. Surface the conflict if the user edited the same fields.
 
+Sources:
+- Concurrency conflicts: https://learn.microsoft.com/ef/core/saving/concurrency
+- Npgsql `xmin` concurrency token: https://www.npgsql.org/efcore/modeling/concurrency.html
+- Jon P Smith on EF concurrency patterns: https://www.thereformedprogrammer.net/
+
 ---
 
 ## 6. Transactions & Unit of Work
@@ -196,6 +279,14 @@ Retry is a **business decision** — don't silently last-write-wins. Surface the
   - You need a specific isolation level (`IsolationLevel.Snapshot`, `Serializable`).
 - **Avoid `TransactionScope`** unless you need ambient enlistment for legacy code. Async + `TransactionScope` requires `TransactionScopeAsyncFlowOption.Enabled` — easy to forget.
 
+### Distributed transactions: don't
+
+> **Architectural rule:** do **not** rely on distributed (two-phase / MSDTC / promoted) transactions across heterogeneous resources — DB + Service Bus, DB + Redis, DB + HTTP, two databases — in modern cloud apps. The coordinator is a single point of failure, most managed services don't enlist, and Linux .NET has no DTC at all.
+
+- Keep transactions **local to one database connection**.
+- For "save row + emit event / call service" use the **transactional outbox + idempotent consumer** pattern. See [`06-cloud-native.md`](./06-cloud-native.md) for the outbox/idempotency guidance and the `OutboxRelay` background service.
+- For multi-aggregate / multi-service workflows, use **sagas** (Wolverine, MassTransit) with compensating actions, not distributed commits.
+
 ### Cross-system consistency → Outbox
 
 Never do `SaveChanges()` then `ServiceBus.SendAsync()`. Either:
@@ -204,6 +295,12 @@ Never do `SaveChanges()` then `ServiceBus.SendAsync()`. Either:
 2. **Inbox / idempotency key** on the consumer side: `(message_id)` unique index; dedupe before side-effects.
 
 Idempotency keys on **HTTP writes** too: `Idempotency-Key` header → table with `(key, tenant) UNIQUE`, store the response for replay.
+
+Sources:
+- EF transactions: https://learn.microsoft.com/ef/core/saving/transactions
+- David Fowler on `TransactionScope` + async pitfalls: https://gist.github.com/davidfowl
+- Jimmy Bogard on the outbox pattern: https://www.jimmybogard.com/refactoring-towards-resilience-evaluating-coupling/
+- Cross-link: [06-cloud-native.md](./06-cloud-native.md)
 
 ---
 
@@ -252,8 +349,15 @@ o.UseSqlServer(cs, sql => sql.EnableRetryOnFailure(
     errorNumbersToAdd: null));
 ```
 
-- Enable retry for transient failures (Azure SQL, cloud Postgres).
+- Enable retry for transient failures (Azure SQL, cloud Postgres). On Azure SQL specifically prefer **`UseAzureSql(...)`** (EF 9+) — it auto-configures Azure-tuned resiliency (transient error list, retry policy) without you maintaining the magic-numbers list. Reserve `UseSqlServer(...EnableRetryOnFailure(...))` for on-prem / generic SQL Server.
 - **Caveat**: execution strategies disable user-initiated transactions. Wrap in `strategy.ExecuteAsync(async () => { using var txn = ...; })`.
+
+Sources:
+- EF Core performance: https://learn.microsoft.com/ef/core/performance/
+- Connection resiliency: https://learn.microsoft.com/ef/core/miscellaneous/connection-resiliency
+- SQL Server provider (`UseAzureSql`): https://learn.microsoft.com/ef/core/providers/sql-server/
+- Ben Adams — high-perf .NET: https://blog.marcgravell.com/ and https://twitter.com/ben_a_adams
+- Shay Rojansky — query plans, Npgsql perf: https://www.roji.org/
 
 ---
 
@@ -261,7 +365,9 @@ o.UseSqlServer(cs, sql => sql.EnableRetryOnFailure(
 
 ### SQL Server / Azure SQL
 - Use `Microsoft.Data.SqlClient` (not `System.Data.SqlClient` — deprecated).
-- Azure SQL: always `EnableRetryOnFailure`, `Encrypt=True`, `TrustServerCertificate=False`.
+- **Azure SQL: prefer `UseAzureSql(connectionString)`** — it bundles the Azure-specific transient-error list and resiliency settings. Drop manual `EnableRetryOnFailure` tuning unless you have a measured reason.
+- For generic SQL Server (on-prem, containers, IaaS): `UseSqlServer(cs, sql => sql.EnableRetryOnFailure(...))`.
+- Connection string essentials: `Encrypt=True`, `TrustServerCertificate=False`, prefer `Authentication=Active Directory Default` over passwords.
 - EF10: native `json` type mapping — opt in for new models.
 
 ### PostgreSQL (Npgsql)
@@ -270,9 +376,48 @@ o.UseSqlServer(cs, sql => sql.EnableRetryOnFailure(
 - Array columns (`int[]`, `text[]`), `jsonb`, range types, `LTREE` — all mapped. Use them instead of inventing tables.
 - Connection pooling is client-side; use PgBouncer in transaction mode for high fan-out. Disable prepared statements or configure `Max Auto Prepare` accordingly.
 
+### Cosmos DB (EF Core Cosmos provider)
+
+Cosmos is a **document database** wearing an EF face. Modeling rules from relational EF do not transfer.
+
+**Use EF Cosmos when**
+- Your aggregate maps cleanly to a single document (order + lines, user + profile).
+- Your access pattern is **point reads** (`id` + partition key) and partition-scoped queries.
+- You want LINQ + change tracking + migrations-style container provisioning over the SDK.
+
+**Skip EF Cosmos and drop to the SDK when**
+- You need fine-grained RU control, bulk executor, change feed processor, or hierarchical partition keys with custom routing.
+- You're doing cross-partition analytics (use the analytical store / Synapse link / Fabric mirroring instead).
+
+**Modeling rules**
+- **Always model the partition key explicitly** (`HasPartitionKey`). Default to a high-cardinality, query-aligned key (`/tenantId`, `/customerId`). Bad partition keys are *unfixable* without a re-import.
+- Related types are **owned by default** — `OwnsMany(o => o.Lines)` becomes an embedded array, not a separate container. Reach for separate root entities only when lifecycle truly differs.
+- Every read should be a **point read** (`db.Orders.FindAsync(id, partitionKey)`) or a query *with* the partition key in the predicate. Cross-partition queries fan out and burn RUs.
+- No joins. Denormalize. Accept duplication; storage is cheap, RUs are not.
+- No transactions across partition keys. Use **transactional batches** within a single partition key, or sagas across them.
+- Concurrency: ETag (`_etag`) — map via `IsETagConcurrency()`.
+- Migrations don't exist; you ship schema in code and version documents (`schemaVersion` field + read-side upgrade).
+
+**Cost discipline**
+- Watch RU charge per query in App Insights / diagnostics — it's the latency signal that matters.
+- Bulk writes: `AllowBulkExecution = true` on the underlying `CosmosClient`, then fan out via `Task.WhenAll`.
+- Prefer the SDK directly when an endpoint is RU-sensitive and you need to control consistency level, indexing policy, or partition key path per operation.
+
+Sources:
+- EF Core Cosmos provider: https://learn.microsoft.com/ef/core/providers/cosmos/
+- Cosmos partitioning guidance: https://learn.microsoft.com/azure/cosmos-db/partitioning-overview
+- Cosmos request units: https://learn.microsoft.com/azure/cosmos-db/request-units
+- EF team blog — Cosmos updates: https://devblogs.microsoft.com/dotnet/category/entity-framework/
+
 ### SQLite
 - **Tests only**, and only when you're not using provider-specific SQL. Dialect differences (no `FOR UPDATE`, different `json_` functions, case sensitivity) will bite.
 - For real tests → Testcontainers.
+
+Sources:
+- SQL Server provider: https://learn.microsoft.com/ef/core/providers/sql-server/
+- Npgsql / EFCore.PG: https://www.npgsql.org/efcore/
+- Cosmos provider: https://learn.microsoft.com/ef/core/providers/cosmos/
+- Shay Rojansky (Npgsql lead): https://www.roji.org/
 
 ---
 
@@ -282,6 +427,11 @@ o.UseSqlServer(cs, sql => sql.EnableRetryOnFailure(
 - Never `.Result`, `.Wait()`, `GetAwaiter().GetResult()` on a `DbContext` call. Deadlocks in sync contexts, thread-pool starvation in server code.
 - Flow `HttpContext.RequestAborted` / `IHostApplicationLifetime.ApplicationStopping` into queries. Long reports become cancellable for free.
 - `ConfigureAwait(false)` is irrelevant in ASP.NET Core (no sync context). Still required in libraries.
+
+Sources:
+- Async guidance (David Fowler): https://github.com/davidfowl/AspNetCoreDiagnosticScenarios/blob/master/AsyncGuidance.md
+- Stephen Toub — async deep-dives: https://devblogs.microsoft.com/dotnet/author/stephentoub/
+- Ben Adams on async perf pitfalls: https://blog.marcgravell.com/
 
 ---
 
@@ -307,6 +457,11 @@ public sealed class OrderReadRepo(IDbConnectionFactory f)
 - **`QueryMultipleAsync`** for dashboards — one round trip, N result sets.
 - Share the connection with EF when you need a cross-tool transaction: `conn = db.Database.GetDbConnection(); txn = db.Database.CurrentTransaction?.GetDbTransaction();`
 
+Sources:
+- Dapper: https://github.com/DapperLib/Dapper
+- Khalid Abuhakmeh — EF + Dapper interop: https://khalidabuhakmeh.com/
+- Nick Chapsas — Dapper vs EF benchmarks: https://nickchapsas.com/
+
 ---
 
 ## 11. Repository / Specification
@@ -318,6 +473,10 @@ public sealed class OrderReadRepo(IDbConnectionFactory f)
   - You need to stub *one* method in a test without containerizing.
 - **Specification pattern** (`ISpecification<T>` + evaluator): only pays off when specs are genuinely reused across queries and endpoints. Otherwise it's LINQ-with-extra-steps. Avoid the Ardalis-style giant base class in small apps.
 
+Sources:
+- Jimmy Bogard — repository critique: https://www.jimmybogard.com/should-you-use-the-repository-pattern/
+- Jon P Smith on EF + DDD: https://www.thereformedprogrammer.net/
+
 ---
 
 ## 12. CQRS-lite
@@ -325,6 +484,10 @@ public sealed class OrderReadRepo(IDbConnectionFactory f)
 - **Reads**: project directly from `DbContext` in the endpoint/handler. `AsNoTracking` + `Select`. No command bus.
 - **Writes**: one class per command. Takes `DbContext` (or factory), validates, mutates, `SaveChangesAsync`, publishes events (via outbox).
 - **MediatR**: don't add it *just* for indirection. Costs: allocation per request, stack-trace noise, DI registration sprawl, licensing friction since v12. Use it only if you genuinely need pipeline behaviors (logging, validation, tx) applied uniformly — and even then, ASP.NET Core filters / endpoint filters often suffice.
+
+Sources:
+- Jimmy Bogard on MediatR licensing: https://www.jimmybogard.com/automapper-and-mediatr-going-commercial/
+- Andrew Lock — endpoint filters as MediatR alternatives: https://andrewlock.net/
 
 ---
 
@@ -345,31 +508,52 @@ public sealed class OrderReadRepo(IDbConnectionFactory f)
 - **`Microsoft.EntityFrameworkCore.InMemory`** — it lies. No relational semantics, no constraints, no transactions, no SQL. Tests pass that prod fails. Microsoft officially recommends against it.
 - SQLite-as-Postgres-substitute. Different dialect, different bugs.
 - Unit-test the DbContext. Test your *handlers* against a real DB.
+- **Never materialize before filtering or projecting.** `db.Users.ToListAsync().Result.Where(u => u.Active)` pulls the whole table into memory and filters in C#. Filter and project in the `IQueryable` first, *then* `ToListAsync`.
+- **Never enable lazy-loading proxies** (`UseLazyLoadingProxies()`) in services or APIs. They turn property accesses into invisible round-trips, break `AsNoTracking`, and produce N+1 patterns that don't show up in code review. Use explicit `Include` or projection.
+
+Sources:
+- EF testing guidance (incl. "don't use InMemory"): https://learn.microsoft.com/ef/core/testing/
+- Testcontainers for .NET: https://dotnet.testcontainers.org/
+- Respawn: https://github.com/jbogard/Respawn
+- Jon P Smith — testing EF Core: https://www.thereformedprogrammer.net/
 
 ---
 
 ## 14. Caching
 
-- **`IMemoryCache`** for single-process, tiny, per-instance state.
-- **`HybridCache`** (.NET 9 GA, improved in .NET 10): L1 in-memory + L2 distributed (Redis), with stampede protection and tag-based invalidation. Replace hand-rolled `IMemoryCache` + `IDistributedCache` sandwiches.
-  ```csharp
-  builder.Services.AddHybridCache();
-  var dto = await cache.GetOrCreateAsync(
-      $"user:{id}",
-      async ct => await db.Users.AsNoTracking()
-          .Where(u => u.Id == id)
-          .Select(u => new UserDto(...)).FirstAsync(ct),
-      tags: new[] { $"tenant:{tenantId}" },
-      cancellationToken: ct);
-  ```
+### Pick the right cache for the job
+
+| Cache | When |
+|---|---|
+| **`OutputCache`** (ASP.NET Core middleware) | HTTP **response** caching — varies by route/query/header, supports tag-based eviction. Use for read endpoints whose entire response is cacheable. |
+| **`HybridCache`** (.NET 9 GA, .NET 10 hardened) | App **data** caching with L1 in-memory + optional L2 distributed (Redis), built-in **stampede protection**, and tags. The default for new app-data caching. |
+| **`IDistributedCache`** (Redis / SQL Server) | Simple distributed K/V when you don't need L1 or stampede protection (sessions, short tokens, small shared blobs). Most new code should reach for `HybridCache` instead. |
+| **`IMemoryCache`** | Single-process, tiny, per-instance state. Fine inside a singleton service; not a cluster cache. |
+| **EF "second-level" cache libraries** | Avoid. There is **no official EF L2 cache**. Third-party interceptors (e.g. `EFCoreSecondLevelCacheInterceptor`) miss invalidation from raw SQL, `ExecuteUpdate`, triggers, and other contexts. Prefer explicit cache-aside at the query you want to cache. |
+
+```csharp
+builder.Services.AddHybridCache();
+var dto = await cache.GetOrCreateAsync(
+    $"user:{id}",
+    async ct => await db.Users.AsNoTracking()
+        .Where(u => u.Id == id)
+        .Select(u => new UserDto(...)).FirstAsync(ct),
+    tags: new[] { $"tenant:{tenantId}" },
+    cancellationToken: ct);
+```
 
 **Invalidation**
 - **Cache-aside** is the default. Write path: `SaveChangesAsync` → `cache.RemoveByTagAsync("tenant:{id}")`.
 - Keep TTLs short (seconds–minutes) for anything mutable. Long TTL + manual invalidation = incidents.
 - **Do not** put EF-tracked entities in cache. DTOs or primitives only. Tracked graphs across cache are identity-map bombs.
+- `ExecuteUpdate`/`ExecuteDelete` and raw SQL **do not** trigger your cache invalidation hooks — invalidate explicitly at those call sites.
 
-**Second-level cache libraries (EFCoreSecondLevelCacheInterceptor etc.)**
-- Tempting, dangerous. Invalidation spans all code paths including raw SQL, `ExecuteUpdate`, triggers. Prefer explicit cache-aside at the query you actually want to cache.
+Sources:
+- HybridCache: https://learn.microsoft.com/aspnet/core/performance/caching/hybrid
+- OutputCache middleware: https://learn.microsoft.com/aspnet/core/performance/caching/output
+- Distributed caching: https://learn.microsoft.com/aspnet/core/performance/caching/distributed
+- Andrew Lock on HybridCache: https://andrewlock.net/
+- Steve Gordon — HybridCache internals: https://www.stevejgordon.co.uk/
 
 ---
 
@@ -383,6 +567,12 @@ public sealed class OrderReadRepo(IDbConnectionFactory f)
   - PostgreSQL: `pgcrypto` for app-layer, or encrypt in code via Data Protection `IDataProtector` and store `byte[]` (deterministic = searchable, randomized = safer).
   - For PII tokenization, keep keys in KMS/HSM, not in the DB.
 - Log **parameterized SQL**, never values. `EnableSensitiveDataLogging` is a dev/test switch; gate it behind `IsDevelopment()`.
+
+Sources:
+- Data Protection: https://learn.microsoft.com/aspnet/core/security/data-protection/
+- Always Encrypted (SQL Server): https://learn.microsoft.com/sql/relational-databases/security/encryption/always-encrypted-database-engine
+- Managed identity for Azure SQL: https://learn.microsoft.com/azure/azure-sql/database/authentication-aad-overview
+- Meziantou on Data Protection & column encryption: https://www.meziantou.net/
 
 ---
 
@@ -426,3 +616,4 @@ public sealed class OrderReadRepo(IDbConnectionFactory f)
 - Meziantou — https://www.meziantou.net/ (async, Data Protection, column encryption)
 - Steve Gordon — https://www.stevejgordon.co.uk/ (async, caching, HybridCache internals)
 - David Fowler — gists on `TransactionScope`, async pitfalls — https://gist.github.com/davidfowl
+- Ben Adams — high-perf .NET, allocations, kestrel — https://blog.marcgravell.com/ and https://twitter.com/ben_a_adams
