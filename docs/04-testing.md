@@ -1,6 +1,26 @@
 # Testing .NET 10 Apps — Opinionated Best Practices
 
-This is a dense, opinionated guide. It assumes `net10.0`, `Microsoft.Testing.Platform` (MTP), and xUnit v3 GA (shipped Dec 16, 2024). Do/Don't notation is intentional. If you disagree, write your own doc.
+This is a dense, opinionated guide.
+It assumes `net10.0`, `Microsoft.Testing.Platform` (MTP), and xUnit v3 GA (shipped Dec 16, 2024).
+Do/Don't notation is intentional.
+If you disagree, write your own doc.
+
+**Defaults at a glance** (each one is justified in its own section below):
+
+- Test framework: **xUnit v3** under MTP. Fallback: MSTest v3 (also MTP-native). See §2.
+- Assertion library: **Shouldly** for new code. Fallback: built-in `Assert` (zero deps) or **AwesomeAssertions** if migrating off FluentAssertions v8. See §3.
+- Mock library: **NSubstitute**. Fallback: hand-rolled fakes for narrow ports. Never Moq in new code. See §4.
+- Integration-test harness: **`WebApplicationFactory<Program>` + Testcontainers + Respawn**. Fallback: **Aspire `DistributedApplicationTestingBuilder`** when the system under test is the whole AppHost graph (see [Chapter 06 — cloud-native](./06-cloud-native.md)). See §5–§6.
+- Time: **`TimeProvider` + `FakeTimeProvider`**. See §14.
+- Snapshot: **Verify**. See §7.
+- Property tests: **FsCheck** (mature) or **CsCheck** (C#-first). See §10.
+
+**Cross-chapter wiring** (this chapter is the test-harness owner; the rules being tested live elsewhere):
+
+- DI lifetimes that constrain how fakes and fixtures register → [Chapter 01 — foundations §DI lifetimes](./01-foundations.md).
+- The endpoints, ProblemDetails contracts, and JWT/Entra surface that `WebApplicationFactory` exercises → [Chapter 02 — aspnetcore](./02-aspnetcore.md).
+- EF Core modeling, migrations, and the outbox pattern that integration tests target → [Chapter 03 — data](./03-data.md).
+- Aspire AppHost composition that `DistributedApplicationTestingBuilder` boots → [Chapter 06 — cloud-native](./06-cloud-native.md).
 
 ---
 
@@ -26,14 +46,20 @@ Three tiers. Ratios are guidance, not law:
 - **Don't hit real cloud resources by default in CI.** Use containers (Testcontainers) or local emulators (Azurite, Cosmos DB Emulator, LocalStack) for the integration tier. Live cloud is reserved for explicitly tagged smoke / post-deploy jobs against a dedicated test subscription, never the default `dotnet test` run. Real cloud in PR CI is slow, flaky, leaks credentials, and racks up bills.
 
 Sources:
+- xUnit.net — *Comparing xUnit.net to other frameworks* — https://xunit.net/docs/comparisons
+- Testcontainers for .NET — *Why Testcontainers?* — https://dotnet.testcontainers.org/
 - learn.microsoft.com — *Integration tests in ASP.NET Core* — https://learn.microsoft.com/aspnet/core/test/integration-tests
 - learn.microsoft.com — *Use Azurite emulator for local Azure Storage development* — https://learn.microsoft.com/azure/storage/common/storage-use-azurite
 
 ---
 
-## 2. Frameworks: xUnit v3, MSTest, NUnit
+## 2. Frameworks: xUnit v3, MSTest, NUnit, TUnit
 
-**Use xUnit v3.** It is GA (1.0.0, Dec 2024) and is the canonical choice for new .NET code. MSTest and NUnit are fine if you already use them — don't migrate for its own sake.
+**Default: xUnit v3.**
+It is GA (1.0.0, Dec 2024) and is the canonical choice for new .NET code.
+**Fallback: MSTest v3** if your org already standardizes on it — both are MTP-native and the gap is small.
+NUnit 4 is fine to keep on existing projects; do not migrate for its own sake.
+TUnit is the right pick only when source-gen discovery or Native AOT tests are hard requirements.
 
 ### xUnit v3: what actually changed from v2
 
@@ -112,6 +138,8 @@ Sources:
 - xUnit.net — *What's New in v3* — https://xunit.net/docs/getting-started/v3/whats-new
 - xUnit.net — *Microsoft.Testing.Platform support* — https://xunit.net/docs/getting-started/v3/microsoft-testing-platform
 - xUnit.net — *Capturing output* — https://xunit.net/docs/capturing-output
+- xUnit.net — *Migrating from v2 to v3* — https://xunit.net/docs/getting-started/v3/migration
+- TUnit — *Project README* (MTP-native, source-gen discovery) — https://github.com/thomhurst/TUnit
 - Microsoft .NET Blog — *MTP adoption across frameworks* — https://devblogs.microsoft.com/dotnet/mtp-adoption-frameworks/
 - learn.microsoft.com — *Microsoft.Testing.Platform overview* — https://learn.microsoft.com/dotnet/core/testing/microsoft-testing-platform-intro
 
@@ -119,7 +147,9 @@ Sources:
 
 ## 3. Assertions
 
-**Recommendation: built-in `Assert` (xUnit v3) + `Shouldly` for readability + `Verify` for structural/snapshot.**
+**Default: Shouldly for new code.**
+**Fallback: built-in `Assert` (xUnit v3) when you want zero extra dependencies, or AwesomeAssertions when migrating an existing FluentAssertions codebase.**
+Add **Verify** alongside any of the above for structural / snapshot assertions (§7).
 
 ### Built-in `Assert` (xUnit v3)
 Covers ~90% of needs now that `Assert.Equivalent`, `Assert.Collection`, `Assert.Multiple` exist. Zero dependencies, no license drama.
@@ -164,17 +194,22 @@ If you're moving off FA v8 for licensing reasons, pick by goal — not by hype.
 - Don't fork FA yourself — there are already maintained forks.
 
 Sources:
-- xUnit.net — *Assertions in v3* — https://xunit.net/docs/getting-started/v3/whats-new
-- AwesomeAssertions — https://github.com/AwesomeAssertions/AwesomeAssertions
-- Shouldly — https://docs.shouldly.org/
+- xUnit.net — *What's New in v3* (assertions) — https://xunit.net/docs/getting-started/v3/whats-new
+- Shouldly — *Project README* — https://github.com/shouldly/shouldly
+- Shouldly — *Documentation* — https://docs.shouldly.org/
+- AwesomeAssertions — *Project README* (Apache-2.0 fork of FluentAssertions v7) — https://github.com/AwesomeAssertions/AwesomeAssertions
+- Verify — *Project README* — https://github.com/VerifyTests/Verify
+- TUnit — *Assertions* — https://github.com/thomhurst/TUnit/tree/main/TUnit.Assertions
 - Xceed — *Fluent Assertions FAQ* (v8 licensing) — https://xceed.com/fluent-assertions-faq/
-- Verify — https://github.com/VerifyTests/Verify
 
 ---
 
 ## 4. Mocks and fakes
 
-**Prefer NSubstitute. Avoid Moq.**
+**Default: NSubstitute.**
+**Fallback: hand-rolled fakes** for narrow ports (1–3 methods).
+**Never Moq in new code** — see SponsorLink fallout below.
+DI lifetime rules for how these fakes register (Singleton / Scoped / Transient and captive-dependency traps) are owned by [Chapter 01 — foundations](./01-foundations.md); this chapter only covers the test-side mechanics.
 
 ### Moq — SponsorLink fallout
 In Aug 2023, **Moq 4.20.0** shipped `SponsorLink`, a closed-source analyzer that read the developer's git email, hashed it (SHA-256, not salted), and phoned home. It was removed three days later in **4.20.2 (Aug 9, 2023)** under community pressure ("Remove SponsorLink since it breaks MacOS restore", PR #1375), and Moq has not re-added it through the latest **4.20.72 (Sep 2024)**. Trust is gone regardless. Many orgs banned Moq outright or pinned to 4.18.4.
@@ -209,11 +244,23 @@ fixture.Customize<Money>(c => c.FromFactory(() => new Money(100, "USD")));
 
 **Don't** use AutoFixture for domain objects with invariants — construct those explicitly via builders (§13).
 
+Sources:
+- NSubstitute — *Documentation* — https://nsubstitute.github.io/
+- NSubstitute — *Project repository* — https://github.com/nsubstitute/NSubstitute
+- devlooped/moq issue #1372 — *SponsorLink (4.20.0) discussion* — https://github.com/devlooped/moq/issues/1372
+- devlooped/moq PR #1375 — *Remove SponsorLink since it breaks MacOS restore* — https://github.com/devlooped/moq/pull/1375
+- learn.microsoft.com — *FakeLogger* — https://learn.microsoft.com/dotnet/core/extensions/logger-message-generator
+
 ---
 
 ## 5. `WebApplicationFactory` for ASP.NET Core
 
-The standard way to test a real request pipeline in-process. Fast (no network), realistic (full middleware), overrideable (real DI container).
+**Default integration harness for a single ASP.NET Core service: `WebApplicationFactory<Program>` + Testcontainers + Respawn.**
+**Fallback: `Aspire.Hosting.Testing.DistributedApplicationTestingBuilder`** when the unit under test is the whole multi-service Aspire graph (see [Chapter 06 — cloud-native](./06-cloud-native.md) for the AppHost wiring this builder boots).
+
+The standard way to test a real request pipeline in-process.
+Fast (no network), realistic (full middleware), overrideable (real DI container).
+The endpoints, ProblemDetails contracts, JWT bearer + Entra validation, and rate-limiting middleware exercised here are owned by [Chapter 02 — aspnetcore](./02-aspnetcore.md); assert against those contracts, do not redefine them.
 
 ### The spine
 
@@ -256,7 +303,9 @@ services.AddAuthentication(defaults =>
 }).AddScheme<AuthenticationSchemeOptions, TestAuthHandler>("Test", _ => { });
 ```
 
-`TestAuthHandler` returns a `ClaimsPrincipal` built from request headers (`X-Test-User`, `X-Test-Roles`). Each test sets headers to simulate a user — no tokens, no IdP round-trips.
+`TestAuthHandler` returns a `ClaimsPrincipal` built from request headers (`X-Test-User`, `X-Test-Roles`).
+Each test sets headers to simulate a user — no tokens, no IdP round-trips.
+The production scheme being replaced (JWT bearer with Microsoft Entra; validation of `iss`/`aud`/`scp`/`roles`/`azp`; policy-based authorization) is owned by [Chapter 02 — aspnetcore](./02-aspnetcore.md) — your test scheme must satisfy the same policies, not bypass them.
 
 **Do**
 - Keep the `TestAuthHandler` in the test project, not in production code.
@@ -300,13 +349,19 @@ Sources:
 - learn.microsoft.com — *Integration tests in ASP.NET Core* — https://learn.microsoft.com/aspnet/core/test/integration-tests
 - learn.microsoft.com — *Implement background tasks in microservices with `IHostedService`* — https://learn.microsoft.com/dotnet/core/extensions/timer-service
 - learn.microsoft.com — *.NET Aspire testing overview* — https://learn.microsoft.com/dotnet/aspire/testing/overview
+- learn.microsoft.com — *Write your first .NET Aspire test* — https://learn.microsoft.com/dotnet/aspire/testing/write-your-first-test
+- learn.microsoft.com — *Manage the app host in tests* — https://learn.microsoft.com/dotnet/aspire/testing/manage-app-host
 - learn.microsoft.com — *FakeTimeProvider* — https://learn.microsoft.com/dotnet/api/microsoft.extensions.time.testing.faketimeprovider
+- Andrew Lock — *Customising configuration sources in `WebApplicationFactory`* — https://andrewlock.net/converting-integration-tests-to-net-core-3/
 
 ---
 
 ## 6. Testcontainers
 
-**Use Testcontainers for anything with a driver: Postgres, SQL Server, Redis, RabbitMQ, Kafka, Azurite, MongoDB.** Docker is a test dependency; accept it.
+**Default: Testcontainers for anything with a driver — Postgres, SQL Server, Redis, RabbitMQ, Kafka, Azurite, MongoDB, Cosmos emulator.**
+**Fallback: a provider-supplied local emulator** (Azurite, Cosmos DB Emulator, LocalStack) when no container image exists.
+Docker is a test dependency; accept it.
+The EF Core modeling, migration bundles, and provider-specific behavior these tests exercise are owned by [Chapter 03 — data](./03-data.md) — keep schema decisions there, not in the test fixture.
 
 ### Module packages
 
@@ -391,6 +446,8 @@ Sources:
 - xUnit.net — *Shared context between tests* — https://xunit.net/docs/shared-context
 - Testcontainers for .NET — *Modules* (MsSql, PostgreSql, Redis, …) — https://dotnet.testcontainers.org/modules/
 - Testcontainers for .NET — *Testcontainers.XunitV3* — https://dotnet.testcontainers.org/test_frameworks/xunit_v3/
+- Testcontainers for .NET — *Reuse containers* — https://dotnet.testcontainers.org/api/resource_reuse/
+- testcontainers/testcontainers-dotnet — *Repository* — https://github.com/testcontainers/testcontainers-dotnet
 - Respawn — https://github.com/jbogard/Respawn
 - learn.microsoft.com — *Integration tests in ASP.NET Core* — https://learn.microsoft.com/aspnet/core/test/integration-tests
 
@@ -420,6 +477,12 @@ Sources:
 - Don't snapshot huge blobs you can't eyeball. Snapshots you can't read become rubber stamps.
 - Don't snapshot prod secrets or PII. Use scrubbers.
 
+Sources:
+- VerifyTests/Verify — *Project README* — https://github.com/VerifyTests/Verify
+- VerifyTests/Verify — *Scrubbers* — https://github.com/VerifyTests/Verify/blob/main/docs/scrubbers.md
+- VerifyTests/Verify.EntityFramework — *Project README* — https://github.com/VerifyTests/Verify.EntityFramework
+- VerifyTests/Verify.Http — *Project README* — https://github.com/VerifyTests/Verify.Http
+
 ---
 
 ## 8. Mutation testing with Stryker.NET
@@ -434,6 +497,10 @@ Mutation testing changes your source ("mutants") and reruns tests. If tests stil
 **Don't**
 - Don't run Stryker on every PR. It's too slow and produces noisy diffs.
 - Don't chase 100%. Equivalent mutants (semantically identical) exist; diminishing returns after ~80%.
+
+Sources:
+- Stryker.NET — *Documentation* — https://stryker-mutator.io/docs/stryker-net/introduction/
+- stryker-mutator/stryker-net — *Repository* — https://github.com/stryker-mutator/stryker-net
 
 ---
 
@@ -451,6 +518,10 @@ Encode layering rules as tests. Cheap insurance against drift.
 **Don't**
 - Don't encode coding style here (use analyzers / `.editorconfig`).
 - Don't make rules so strict every new feature requires updating them.
+
+Sources:
+- BenMorris/NetArchTest — *Repository* — https://github.com/BenMorris/NetArchTest
+- TNG/ArchUnitNET — *Repository* — https://github.com/TNG/ArchUnitNET
 
 ---
 
@@ -490,7 +561,8 @@ When FsCheck shrinks to a counterexample it prints the seed (e.g. `Replay = "(12
 
 Sources:
 - FsCheck — *Running tests* (xUnit integration, `Replay`) — https://fscheck.github.io/FsCheck/RunningTests.html
-- CsCheck — https://github.com/AnthonyLloyd/CsCheck
+- fscheck/FsCheck — *Repository* — https://github.com/fscheck/FsCheck
+- AnthonyLloyd/CsCheck — *Repository* — https://github.com/AnthonyLloyd/CsCheck
 
 ---
 
@@ -541,8 +613,11 @@ public class RepoBenchmarks
 
 Be aware: container startup is excluded, but Docker-host state (cache, page cache, neighboring containers) introduces variance the BDN warmup phase cannot iron out. Pin the image tag, reserve a dedicated runner, and treat results as a *trend* against a committed baseline — not as PR-gate truth.
 
+Wall-clock benchmark methodology, allocation discipline, and BDN regression-gate policy live in [Chapter 05 — performance](./05-performance.md); this chapter only covers wiring BDN into the same Testcontainers fixtures the integration tier uses.
+
 Sources:
 - BenchmarkDotNet — *Setup and Cleanup* (`[GlobalSetup]`/`[GlobalCleanup]` lifecycle) — https://benchmarkdotnet.org/articles/features/setup-and-cleanup.html
+- dotnet/BenchmarkDotNet — *Repository* — https://github.com/dotnet/BenchmarkDotNet
 - Testcontainers for .NET — https://dotnet.testcontainers.org/
 
 ---
@@ -560,6 +635,11 @@ Use **coverlet.collector** (MTP has first-party coverage too) + **ReportGenerato
 - Don't set a hard 80% gate. Teams write trivial tests to game it.
 - Don't trust branch coverage on `async` methods — state machines distort numbers. Mutation testing is a better signal (§8).
 
+Sources:
+- coverlet-coverage/coverlet — *Repository* — https://github.com/coverlet-coverage/coverlet
+- danielpalme/ReportGenerator — *Repository* — https://github.com/danielpalme/ReportGenerator
+- learn.microsoft.com — *Use code coverage for unit testing* — https://learn.microsoft.com/dotnet/core/testing/unit-testing-code-coverage
+
 ---
 
 ## 13. Test data builders
@@ -576,6 +656,10 @@ Two patterns, both good:
 
 **Don't**
 - Don't use AutoFixture for domain aggregates with invariants. It sets properties via reflection and bypasses constructors.
+
+Sources:
+- AutoFixture/AutoFixture — *Repository* — https://github.com/AutoFixture/AutoFixture
+- bchavez/Bogus — *Repository* — https://github.com/bchavez/Bogus
 
 ---
 
@@ -602,6 +686,11 @@ Inject `Random` (or a seed). `new Random(seed)` is deterministic. For crypto, `R
 
 ### File system
 Use `System.IO.Abstractions` + `MockFileSystem` for unit tests. For integration, use a `TempFolder` helper that cleans itself up.
+
+Sources:
+- learn.microsoft.com — *TimeProvider class* — https://learn.microsoft.com/dotnet/api/system.timeprovider
+- learn.microsoft.com — *FakeTimeProvider* — https://learn.microsoft.com/dotnet/api/microsoft.extensions.time.testing.faketimeprovider
+- TestableIO/System.IO.Abstractions — *Repository* — https://github.com/TestableIO/System.IO.Abstractions
 
 ---
 
@@ -641,41 +730,76 @@ Sources:
 - Don't run E2E on every PR if each run costs minutes. Tag and schedule.
 - Don't mix test results across frameworks in one project (xUnit + NUnit in one csproj = pain).
 
+Sources:
+- xUnit.net — *Running tests in parallel* — https://xunit.net/docs/running-tests-in-parallel
+- learn.microsoft.com — *Filter options for `dotnet test`* — https://learn.microsoft.com/dotnet/core/tools/dotnet-test#filter-tests
+
 ---
 
 ## TL;DR cheat sheet
 
-- **xUnit v3 + MTP**, `OutputType=Exe`.
-- **Shouldly or built-in `Assert.Equivalent`**. Skip FA v8 unless you paid.
+- **xUnit v3 + MTP**, `OutputType=Exe`. Fallback: MSTest v3.
+- **Shouldly** for new code; built-in `Assert` for zero deps; **AwesomeAssertions** if migrating off FA v8. Skip FA v8 unless you paid.
 - **NSubstitute**, not Moq.
 - **Testcontainers**, not SQLite-pretending-to-be-SQL-Server.
-- **`WebApplicationFactory` + `TestAuthHandler`** for API tests.
+- **`WebApplicationFactory<Program>` + `TestAuthHandler`** for API tests; **`DistributedApplicationTestingBuilder`** for the whole Aspire graph.
 - **Verify** for anything structured.
 - **`TimeProvider` + `FakeTimeProvider`** — delete your homegrown `IClock`.
 - **Stryker nightly**, coverage as trend, mutation score as signal.
 - **Benchmarks nightly** on dedicated hardware; **allocation assertions** in PRs.
-- **Property tests with deterministic seeds**.
+- **Property tests with deterministic seeds** (FsCheck or CsCheck).
 - **Flakes are bugs**.
+
+### Where to look next
+
+- DI lifetimes for fakes / fixtures (Singleton vs Scoped vs Transient, captive deps) → [Chapter 01 — foundations](./01-foundations.md).
+- The endpoint surface, JWT/Entra scheme, and ProblemDetails contracts that `WebApplicationFactory` exercises → [Chapter 02 — aspnetcore](./02-aspnetcore.md).
+- EF Core schema, migrations, and the outbox pattern that integration fixtures target → [Chapter 03 — data](./03-data.md).
+- Aspire AppHost composition that `DistributedApplicationTestingBuilder` boots, and `ServiceDefaults` it inherits → [Chapter 06 — cloud-native](./06-cloud-native.md).
 
 ---
 
 ## Sources
 
-### Authoritative
+### Authoritative — frameworks
 - xUnit.net — *What's New in v3* — https://xunit.net/docs/getting-started/v3/whats-new
+- xUnit.net — *Microsoft.Testing.Platform support* — https://xunit.net/docs/getting-started/v3/microsoft-testing-platform
+- xUnit.net — *Migrating from v2 to v3* — https://xunit.net/docs/getting-started/v3/migration
 - xUnit.net — Release notes (v3 1.0.0 GA, 2024-12-16) — https://xunit.net/releases/v3/1.0.0
+- xunit/xunit — *Repository* — https://github.com/xunit/xunit
+- TUnit — *Project README* — https://github.com/thomhurst/TUnit
 - Microsoft .NET Blog — *Microsoft.Testing.Platform: Now Supported by All Major .NET Test Frameworks* — https://devblogs.microsoft.com/dotnet/mtp-adoption-frameworks/
 - learn.microsoft.com — *Microsoft.Testing.Platform overview* — https://learn.microsoft.com/dotnet/core/testing/microsoft-testing-platform-intro
+
+### Authoritative — assertions, mocks, fakes
+- Shouldly — *Documentation* — https://docs.shouldly.org/
+- shouldly/shouldly — *Repository* — https://github.com/shouldly/shouldly
+- AwesomeAssertions — *Repository* — https://github.com/AwesomeAssertions/AwesomeAssertions
+- Verify — *Repository* — https://github.com/VerifyTests/Verify
+- NSubstitute — *Documentation* — https://nsubstitute.github.io/
+- nsubstitute/NSubstitute — *Repository* — https://github.com/nsubstitute/NSubstitute
+- Xceed — *Fluent Assertions FAQ* (v8 licensing) — https://xceed.com/fluent-assertions-faq/
+- devlooped/moq PR #1375 — *Remove SponsorLink since it breaks MacOS restore* — https://github.com/devlooped/moq/pull/1375
+- devlooped/moq issue #1384 — *SponsorLink is now OSS too and no longer bundled* — https://github.com/devlooped/moq/issues/1384
+
+### Authoritative — integration & infrastructure
 - learn.microsoft.com — *Integration tests in ASP.NET Core* — https://learn.microsoft.com/aspnet/core/test/integration-tests
+- Testcontainers for .NET — *Documentation* — https://dotnet.testcontainers.org/
+- testcontainers/testcontainers-dotnet — *Repository* — https://github.com/testcontainers/testcontainers-dotnet
+- Testcontainers for .NET — *Testcontainers.XunitV3* — https://dotnet.testcontainers.org/test_frameworks/xunit_v3/
+- learn.microsoft.com — *.NET Aspire testing overview* — https://learn.microsoft.com/dotnet/aspire/testing/overview
+- learn.microsoft.com — *Write your first .NET Aspire test* — https://learn.microsoft.com/dotnet/aspire/testing/write-your-first-test
+- jbogard/Respawn — *Repository* — https://github.com/jbogard/Respawn
+
+### Authoritative — time, properties, mutation, coverage
 - learn.microsoft.com — *TimeProvider class* — https://learn.microsoft.com/dotnet/api/system.timeprovider
 - learn.microsoft.com — *FakeTimeProvider* — https://learn.microsoft.com/dotnet/api/microsoft.extensions.time.testing.faketimeprovider
-- Testcontainers for .NET — https://dotnet.testcontainers.org/
-- Verify — https://github.com/VerifyTests/Verify
-- Stryker.NET — https://stryker-mutator.io/docs/stryker-net/introduction/
-- NSubstitute — https://nsubstitute.github.io/
-- Shouldly — https://docs.shouldly.org/
-- Xceed — *Fluent Assertions FAQ* (v8 licensing) — https://xceed.com/fluent-assertions-faq/
-- devlooped/moq issue #1384 — *SponsorLink is now OSS too and no longer bundled* — https://github.com/devlooped/moq/issues/1384
+- fscheck/FsCheck — *Repository* — https://github.com/fscheck/FsCheck
+- AnthonyLloyd/CsCheck — *Repository* — https://github.com/AnthonyLloyd/CsCheck
+- Stryker.NET — *Documentation* — https://stryker-mutator.io/docs/stryker-net/introduction/
+- stryker-mutator/stryker-net — *Repository* — https://github.com/stryker-mutator/stryker-net
+- coverlet-coverage/coverlet — *Repository* — https://github.com/coverlet-coverage/coverlet
+- danielpalme/ReportGenerator — *Repository* — https://github.com/danielpalme/ReportGenerator
 
 ### Community
 - Khalid Abuhakmeh — testing & ASP.NET Core posts — https://khalidabuhakmeh.com/
