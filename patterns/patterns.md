@@ -8,8 +8,7 @@ Gang-of-Four refresher framed for idiomatic .NET 10.
 
 ---
 
-
-### Composition root + DI graph testing
+## Composition root + DI graph testing
 
 Compose at the host (`Program.cs`); test the graph:
 
@@ -30,7 +29,7 @@ public void Container_resolves_all_services()
 (In practice you snapshot the registered `IServiceCollection` at host build
 time via a test seam.)
 
-### Options pattern, validated, fail-fast
+## Options pattern, validated, fail-fast
 
 ```csharp
 services.AddOptions<GraphOptions>()
@@ -44,7 +43,7 @@ Combine with the [`[OptionsValidator]` source
 generator](https://learn.microsoft.com/dotnet/core/extensions/options-library-authors#validateoptionssourcegen)
 to avoid reflection at startup.
 
-### Source generators for hot paths
+## Source generators for hot paths
 
 ```csharp
 [LoggerMessage(Level = LogLevel.Information, Message = "Token issued for {ClientId}")]
@@ -62,7 +61,7 @@ generator](https://learn.microsoft.com/dotnet/core/extensions/configuration-gene
 and an OpenAPI source generator (`Microsoft.AspNetCore.OpenApi` in .NET 9+) —
 all eliminate reflection at startup, all are AOT-safe.
 
-### `TimeProvider` for testable time
+## `TimeProvider` for testable time
 
 ```csharp
 public sealed class Clock(TimeProvider time)
@@ -78,7 +77,7 @@ var time = new FakeTimeProvider(DateTimeOffset.Parse("2025-01-01Z"));
 time.Advance(TimeSpan.FromHours(2));
 ```
 
-### Outbox + idempotent handlers
+## Outbox + idempotent handlers
 
 For reliable messaging, never publish from inside `SaveChangesAsync` — write
 to an outbox table in the same transaction, dispatch from a relay.
@@ -94,7 +93,7 @@ Idempotency keys on every external command: hash `(message-id, handler)` and
 short-circuit re-deliveries — exactly-once is a fairy tale, idempotent
 at-least-once is the achievable goal.
 
-### Vertical slice vs Clean Architecture
+## Vertical slice vs Clean Architecture
 
 - **Vertical slice** ([Jimmy
   Bogard](https://www.jimmybogard.com/vertical-slice-architecture/)): organize
@@ -109,22 +108,22 @@ at-least-once is the achievable goal.
 Hybrid is fine: Clean at the assembly level, vertical-slice within
 `Application`. Pick the *primary* axis.
 
-### CQRS only where asymmetry exists
+## CQRS only where asymmetry exists
 
 If your reads and writes have the same shape, MediatR + handlers *is* CQRS
 theatre — Khorikov's
-[*CQRS without 
+[*CQRS without
 DTOs*](https://enterprisecraftsmanship.com/posts/types-of-cqrs/). Adopt
 read-model projections only when the asymmetry is real: different scaling,
 different storage, different consistency.
 
-### Domain events vs integration events
+## Domain events vs integration events
 
 Domain events fire inside the aggregate boundary, dispatched in-process after
 `SaveChanges`. Integration events leave the process via the outbox. Don't
 conflate; the failure modes differ.
 
-### Result types for expected failures
+## Result types for expected failures
 
 ```csharp
 public Result<Order, OrderError> Place(Cart cart) =>
@@ -141,7 +140,7 @@ for *exceptional* (programmer error, infrastructure failure), results for
 [*Functional C#: Handling failures, input
 errors*](https://enterprisecraftsmanship.com/posts/functional-c-handling-failures-input-errors/).
 
-### Strongly-typed IDs
+## Strongly-typed IDs
 
 ```csharp
 [ValueObject<Guid>] public partial struct OrderId;
@@ -152,24 +151,24 @@ errors*](https://enterprisecraftsmanship.com/posts/functional-c-handling-failure
 generate the boilerplate. Eliminates `new OrderRepository().Get(customerId)`-style
 bugs.
 
-### Value objects + `record struct`
+## Value objects + `record struct`
 
 For tiny immutable values that get passed around hot loops, `readonly record
 struct Money(decimal Amount, string Currency)` gives you value equality with
 no heap allocation.
 
-### Specification pattern
+## Specification pattern
 
 [Ardalis.Specification](https://github.com/ardalis/Specification) for
 reusable EF query criteria; only adopt when you have ≥3 places asking the
 same question. One-off queries belong inline.
 
-### Repository ONLY for aggregate roots
+## Repository ONLY for aggregate roots
 
 Per Eric Evans' DDD book and Vaughn Vernon's IDDD: one repository per
 *aggregate root*, not per table. `IOrderRepository`, not `IOrderLineRepository`.
 
-### Unit of Work via EF Core
+## Unit of Work via EF Core
 
 `DbContext` is the unit of work. Don't wrap it. If you need cross-repo
 transactional behaviour, share the `DbContext` (it's already scoped). For
@@ -177,7 +176,7 @@ domain events, use [SaveChanges
 interceptors](https://learn.microsoft.com/ef/core/logging-events-diagnostics/interceptors#savechanges-interceptor)
 to dispatch after a successful commit.
 
-### `BackgroundService` + `Channel<T>`
+## `BackgroundService` + `Channel<T>`
 
 ```csharp
 public sealed class EmailQueue
@@ -200,13 +199,13 @@ public sealed class EmailWorker(EmailQueue queue, IEmailSender sender) : Backgro
 
 `BoundedChannelOptions.FullMode = Wait` gives you backpressure for free.
 
-### Graceful shutdown
+## Graceful shutdown
 
 `IHostApplicationLifetime.ApplicationStopping` fires before `StopAsync`;
 register cleanup there. Configure `HostOptions.ShutdownTimeout` to a value
 larger than your longest in-flight request — default is 30s.
 
-### `ProblemDetails` + `IExceptionHandler`
+## `ProblemDetails` + `IExceptionHandler`
 
 ```csharp
 builder.Services.AddProblemDetails();
@@ -217,7 +216,7 @@ app.UseExceptionHandler();
 [`IExceptionHandler` (NET 8+)](https://learn.microsoft.com/aspnet/core/fundamentals/error-handling#iexceptionhandler)
 is the new chain — register multiple, return `true` to mark handled.
 
-### `WebApplicationFactory` integration tests
+## `WebApplicationFactory` integration tests
 
 Use a `TestAuthHandler` that issues a synthetic claims principal so
 `[Authorize]` routes are exercised; replace `IExternalApi` with a
@@ -225,13 +224,13 @@ Use a `TestAuthHandler` that issues a synthetic claims principal so
 [Integration tests in ASP.NET
 Core](https://learn.microsoft.com/aspnet/core/test/integration-tests).
 
-### Testcontainers
+## Testcontainers
 
 [`Testcontainers for .NET`](https://dotnet.testcontainers.org/) — real
 Postgres/SQL Server/Redis in Docker per test class via `[CollectionFixture]`.
 Faster and more correct than in-memory providers.
 
-### Snapshot testing
+## Snapshot testing
 
 ```csharp
 await Verify(response).ScrubLinesContaining("traceparent");
@@ -239,7 +238,7 @@ await Verify(response).ScrubLinesContaining("traceparent");
 
 Verify integrates with xUnit/NUnit/MSTest; commit the `*.verified.txt`.
 
-### Architecture tests
+## Architecture tests
 
 ```csharp
 var result = Types.InAssembly(typeof(OrderHandler).Assembly)
@@ -249,12 +248,12 @@ var result = Types.InAssembly(typeof(OrderHandler).Assembly)
 Assert.True(result.IsSuccessful, string.Join(",", result.FailingTypeNames ?? []));
 ```
 
-### Public-API tracking
+## Public-API tracking
 
 Per packable project: `PublicAPI.Shipped.txt` + `PublicAPI.Unshipped.txt`.
 Combined with `EnablePackageValidation`, accidental breaks fail the build.
 
-### `IAsyncDisposable` discipline
+## `IAsyncDisposable` discipline
 
 ```csharp
 await using var conn = await _factory.CreateAsync(ct);
@@ -263,7 +262,7 @@ await using var conn = await _factory.CreateAsync(ct);
 Both `using` and `await using` on the same scope are fine; don't mix synchronous
 disposal with async resources or you block on shutdown.
 
-### Telemetry-by-construction
+## Telemetry-by-construction
 
 Every cross-boundary type takes `ILogger<T>`, owns an `ActivitySource`, and
 emits a `Meter`. Bake it in at construction so you don't retrofit it after
@@ -288,7 +287,7 @@ OpenTelemetry [docs for
 
 For each: when to use → 5–15 line C# → "in .NET, prefer X built-in over hand-roll".
 
-### Strategy
+## Strategy
 Pick an algorithm at runtime. Resolve via DI; don't build your own factory.
 ```csharp
 public interface IHasher { string Hash(string s); }
@@ -302,7 +301,7 @@ public sealed class Login([FromKeyedServices("argon2")] IHasher hasher);
 ```
 Prefer `IServiceProvider.GetRequiredKeyedService<T>` over `Func<string, IHasher>` factories.
 
-### Decorator
+## Decorator
 Wrap an interface to add cross-cutting behaviour.
 ```csharp
 services.AddScoped<IOrderService, OrderService>();
@@ -311,7 +310,7 @@ services.Decorate<IOrderService, CachingOrderDecorator>();
 ```
 Prefer [Scrutor](https://github.com/khellang/Scrutor) `Decorate` over hand-rolled wrappers; for AOT-safe alternatives use a source generator (e.g. [DispatchProxy](https://learn.microsoft.com/dotnet/api/system.reflection.dispatchproxy) is not AOT).
 
-### Adapter
+## Adapter
 Translate one interface to another at a boundary.
 ```csharp
 public sealed class GraphUserAdapter(GraphClient g) : IUserDirectory
@@ -322,7 +321,7 @@ public sealed class GraphUserAdapter(GraphClient g) : IUserDirectory
 ```
 Prefer hand-written adapters over reflection mappers at boundaries — they're the documentation of the seam.
 
-### Factory / Abstract Factory
+## Factory / Abstract Factory
 Defer construction.
 ```csharp
 services.AddScoped<Func<TenantId, ITenantContext>>(sp =>
@@ -330,7 +329,7 @@ services.AddScoped<Func<TenantId, ITenantContext>>(sp =>
 ```
 For most cases, `IServiceProvider.GetRequiredKeyedService<T>(key)` replaces the factory entirely.
 
-### Builder
+## Builder
 Step-wise construction of complex objects.
 ```csharp
 var req = new HttpRequestMessage(HttpMethod.Post, url);
@@ -339,14 +338,14 @@ req.Content = JsonContent.Create(payload, options: AuthJsonContext.Default.Optio
 ```
 The BCL already gives you fluent builders for the common cases (`HttpRequestMessage`, `WebApplicationBuilder`, `HostBuilder`, `BlobClientOptionsBuilder`); only hand-roll a builder for *your* domain-specific construction.
 
-### Singleton
+## Singleton
 A single shared instance.
 ```csharp
 services.AddSingleton<IClock, SystemClock>();
 ```
 Always via the DI container, never `static readonly Foo Instance = new();` — the latter is untestable and forces lifetime decisions on consumers.
 
-### Observer
+## Observer
 Push notifications to subscribers.
 ```csharp
 var ch = Channel.CreateUnbounded<OrderPlaced>();
@@ -355,7 +354,7 @@ await ch.Writer.WriteAsync(new OrderPlaced(id));
 ```
 For in-proc events use `Channel<T>` (backpressure!) or MediatR notifications. Skip `IObservable<T>` unless you genuinely need Rx operators.
 
-### Mediator
+## Mediator
 Decouple senders from handlers.
 ```csharp
 public record PlaceOrder(CartId Cart) : IRequest<OrderId>;
@@ -364,11 +363,11 @@ var orderId = await mediator.Send(new PlaceOrder(cart));
 ```
 [MediatR](https://github.com/jbogard/MediatR) for in-proc; [Wolverine](https://wolverinefx.net/) when you also want messaging + outbox in the same primitive. Don't use mediator as a hand-rolled service-locator.
 
-### Command
+## Command
 Encapsulate a request as an object — the C in CQRS.
 Same shape as Mediator above; commands are the *write* side, return `OrderId` or `Result<…>`, never query data back.
 
-### Chain of Responsibility
+## Chain of Responsibility
 Pass a request through a chain.
 ```csharp
 app.UseExceptionHandler();
@@ -378,7 +377,7 @@ app.UseRateLimiter();
 ```
 ASP.NET Core middleware *is* CoR. For exceptions specifically, register multiple `IExceptionHandler`s — the framework chains them.
 
-### Template Method
+## Template Method
 Algorithm skeleton with overridable steps.
 ```csharp
 public abstract class HostedJob : BackgroundService
@@ -394,7 +393,7 @@ public abstract class HostedJob : BackgroundService
 ```
 `sealed override` on the framework method, `abstract` on the customisation point — communicates the contract.
 
-### Visitor
+## Visitor
 Operate on a closed hierarchy.
 ```csharp
 decimal Total(LineItem item) => item switch
@@ -407,7 +406,7 @@ decimal Total(LineItem item) => item switch
 ```
 C# pattern matching on sealed hierarchies is the idiomatic Visitor. Mark the base type `abstract` and *all* derivations `sealed`; the compiler then warns on missing arms.
 
-### Specification
+## Specification
 Encapsulate a query predicate.
 ```csharp
 public sealed class ActiveOrdersOver(decimal min) : Specification<Order>
@@ -417,14 +416,14 @@ public sealed class ActiveOrdersOver(decimal min) : Specification<Order>
 ```
 Use [Ardalis.Specification](https://github.com/ardalis/Specification); plays nicely with EF Core projections.
 
-### Null Object
+## Null Object
 Avoid null branches with a do-nothing implementation.
 ```csharp
 public static class NullClock { public static readonly IClock Instance = new Impl(); /* ... */ }
 ```
 The BCL ships [`NullLogger<T>.Instance`](https://learn.microsoft.com/dotnet/api/microsoft.extensions.logging.abstractions.nulllogger-1) as the canonical example.
 
-### Memento
+## Memento
 Capture state for undo.
 ```csharp
 var snapshot = doc.SaveSnapshot();
@@ -433,7 +432,7 @@ if (cancel) doc.Restore(snapshot);
 ```
 For larger graphs: serialise via STJ source-gen so the snapshot is a `byte[]`.
 
-### Composite
+## Composite
 Treat one and many uniformly.
 ```csharp
 public sealed class CompositeHealthCheck(IEnumerable<IHealthCheck> inner) : IHealthCheck
@@ -444,11 +443,11 @@ public sealed class CompositeHealthCheck(IEnumerable<IHealthCheck> inner) : IHea
 ```
 Most BCL composites are already provided: `IConfiguration` chains providers, `LoggerProvider` chains writers, `IFileProvider` composes via `CompositeFileProvider`.
 
-### Proxy
+## Proxy
 Stand-in object controlling access.
 For cross-cutting at runtime, [Castle DynamicProxy](https://github.com/castleproject/Core) is fine on JIT but not AOT. AOT-safe alternative: a Roslyn source generator that produces a sealed wrapper class. Decorator via Scrutor covers most "I want logging around this interface" cases without proxies at all.
 
-### Flyweight
+## Flyweight
 Share immutable state to save memory.
 ```csharp
 ReadOnlySpan<byte> data = ...;
@@ -457,11 +456,11 @@ try { /* use rented */ } finally { ArrayPool<byte>.Shared.Return(rented); }
 ```
 BCL: `ArrayPool<T>`, `MemoryPool<T>`, `string.Intern`/`StringPool` (CommunityToolkit). Hand-roll only after a profiler shows allocation pressure.
 
-### Bridge
+## Bridge
 Separate abstraction from implementation so each varies independently.
 `ILogger` (abstraction) ↔ `ILoggerProvider` (impl) is the canonical .NET example: Serilog, Console, EventSource all plug in without consumers changing.
 
-### Iterator
+## Iterator
 Lazy traversal.
 ```csharp
 public async IAsyncEnumerable<Page> PagesAsync([EnumeratorCancellation] CancellationToken ct)
@@ -472,16 +471,15 @@ public async IAsyncEnumerable<Page> PagesAsync([EnumeratorCancellation] Cancella
 ```
 `yield return` for sync, `IAsyncEnumerable<T>` + `[EnumeratorCancellation]` for async. Don't materialise to `List<T>` unless the caller needs random access.
 
-### State
+## State
 Behaviour varies with state.
 For non-trivial workflows use [Stateless](https://github.com/dotnet-state-machine/stateless); for simple toggles, an `enum` + `switch` is enough — don't introduce a state-machine library for two states.
 
-### Interpreter
+## Interpreter
 Evaluate sentences in a language.
 You almost never write this by hand in .NET — Roslyn (C#), `System.Linq.Expressions`, EF Core's LINQ provider, and [Sprache](https://github.com/sprache/Sprache) cover the realistic cases. If you find yourself building one, you probably want a config DSL — consider YAML/JSON + a typed binding instead.
 
 ---
-
 
 ---
 

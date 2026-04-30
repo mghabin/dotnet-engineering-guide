@@ -1,0 +1,37 @@
+# markdownlint config — pragmatic; the goal is consistency, not nitpicking.
+default: true
+
+# Long lines are fine for prose. Code fences and tables also exceed 80 cols.
+MD013: false
+
+# We intentionally use HTML in some places (badges, details/summary).
+MD033: false
+
+# Inline code in headings is fine.
+MD038: false
+
+# First line doesn't have to be H1; the README has a badge above.
+MD041: false
+
+# Bare URLs are fine in references sections.
+MD034: false
+
+# Chapter format intentionally clusters list items tightly under headings
+# (one finding per "block" with its Source/Concrete-check lines). Blank-line
+# rules around headings/lists fight that format without adding readability.
+MD022: false
+MD032: false
+
+# Many fenced blocks are pseudocode/output; language tag isn't always meaningful.
+MD040: false
+
+# Adjacent blockquotes (e.g., short conventions note + opening position) are common.
+MD028: false
+
+# This guide uses bold "Do" / "Don't" paragraph leads as a deliberate format
+# (it is not a heading; the section heading is above it). Don't fight that.
+MD036: false
+
+# Code fences in this guide are intentionally tight against the surrounding
+# bullet points (one finding per block). Blank-line-around-fences fights that.
+MD031: false

@@ -10,8 +10,7 @@ How to lay out a multi-team .NET monorepo without paying the chaos tax.
 
 ---
 
-
-### 1.1 When a monorepo is the right call
+## 1.1 When a monorepo is the right call
 
 A monorepo earns its keep when (a) you ship a coherent product whose pieces
 release together, (b) cross-cutting refactors (e.g. an interface change in a
@@ -47,7 +46,7 @@ Decision rule we use:
 | Independent SLAs, independent on-call? | ❌ | ✅ |
 | Open-source library you want consumers to fork? | ❌ | ✅ |
 
-### 1.2 Repo layout
+## 1.2 Repo layout
 
 ```
 /
@@ -111,7 +110,7 @@ corporate feed.
 </configuration>
 ```
 
-### 1.3 Solution files: `.slnx` vs `.sln` vs `.slnf` vs traversal
+## 1.3 Solution files: `.slnx` vs `.sln` vs `.slnf` vs traversal
 
 [`.slnx`](https://devblogs.microsoft.com/visualstudio/new-simpler-solution-file-format/)
 is the XML solution format, GA in VS 17.14 / .NET SDK 9.0.200+. It is now the
@@ -144,7 +143,7 @@ project graph in one MSBuild process — much faster than iterating `.sln`
 entries. `dotnet build` directly on a folder works for trivial cases but does
 not give you graph evaluation.
 
-### 1.4 Central Package Management — beyond the basics
+## 1.4 Central Package Management — beyond the basics
 
 [CPM](https://learn.microsoft.com/nuget/consume-packages/central-package-management)
 is non-negotiable in a monorepo. The minimal `Directory.Packages.props`:
@@ -196,7 +195,7 @@ Key facts:
 - **Trial upgrades**: branch → bump *one* `PackageVersion` → CI runs the full
   monorepo build + tests. Don't combine upgrades.
 
-### 1.5 ProjectReference vs PackageReference — the internal NuGet boundary
+## 1.5 ProjectReference vs PackageReference — the internal NuGet boundary
 
 Inside the monorepo, default to `ProjectReference`. Switch to a `PackageReference`
 against your internal feed when **both** are true:
@@ -224,7 +223,7 @@ When you *do* publish internally, set in the producing project:
 [`Microsoft.DotNet.PackageValidation`](https://learn.microsoft.com/dotnet/fundamentals/apicompat/package-validation/overview)
 will fail the build on accidental binary-breaking changes.
 
-### 1.6 Multi-targeting matrix
+## 1.6 Multi-targeting matrix
 
 Multi-target only when you actually ship to multiple TFMs (libraries on nuget.org,
 shared SDKs, Roslyn analyzers). Apps target one TFM.
@@ -255,7 +254,7 @@ Conditional `PackageVersion` lives in `Directory.Packages.props`:
 </ItemGroup>
 ```
 
-### 1.7 Build performance
+## 1.7 Build performance
 
 Monorepo build time is the #1 reason teams abandon them. The levers, in order
 of payoff:
@@ -289,7 +288,7 @@ of payoff:
 A realistic CI delta: a 200-project repo cold-builds in ~7 minutes; with the
 above it warms to ~90s.
 
-### 1.8 Testing in monorepos
+## 1.8 Testing in monorepos
 
 - **Discovery**: glob `tests/**/*.Tests.csproj` from a traversal project.
 - **Sharding**: split by directory (`tests/Auth/**`, `tests/Billing/**`) into
@@ -314,7 +313,7 @@ above it warms to ~90s.
   -targetdir:./coverage -reporttypes:Cobertura;Html`). Don't try to compute
   monorepo-wide coverage from a single test run; merge afterwards.
 
-### 1.9 Versioning + release
+## 1.9 Versioning + release
 
 Two viable models:
 
@@ -344,7 +343,7 @@ analyzer flags any addition/removal not reflected in those files. Combined with
 `Microsoft.DotNet.PackageValidation`, you get build-time SemVer enforcement
 without anyone reading a checklist.
 
-### 1.10 CI/CD
+## 1.10 CI/CD
 
 **Change detection.** Don't run the whole monorepo on every PR. Two options:
 
@@ -379,7 +378,7 @@ post](https://devblogs.microsoft.com/dotnet/announcing-builtin-container-support
 **Publish profiles** keep environment-specific publish settings out of CI YAML:
 `dotnet publish /p:PublishProfile=Properties/PublishProfiles/AksProd.pubxml`.
 
-### 1.11 Code ownership and architectural enforcement
+## 1.11 Code ownership and architectural enforcement
 
 - `CODEOWNERS` per directory:
   ```
@@ -400,7 +399,7 @@ post](https://devblogs.microsoft.com/dotnet/announcing-builtin-container-support
   M:System.Net.Http.HttpClient.#ctor;Use IHttpClientFactory.
   ```
 
-### 1.12 Refactoring at scale
+## 1.12 Refactoring at scale
 
 - `dotnet format` (with `--severity error --verify-no-changes` in CI) keeps
   whitespace and `using`s normalised; combined with
@@ -413,7 +412,7 @@ post](https://devblogs.microsoft.com/dotnet/announcing-builtin-container-support
   [Roslynator's CLI](https://josefpihrt.github.io/docs/roslynator/cli) over
   `sed` — it understands C# syntax and won't munge strings.
 
-### 1.13 Trade-offs (be honest)
+## 1.13 Trade-offs (be honest)
 
 - **Restore time** scales with package count, not project count. CPM helps
   because every project resolves the same `Directory.Packages.props` graph.
@@ -427,7 +426,6 @@ post](https://devblogs.microsoft.com/dotnet/announcing-builtin-container-support
   can't do it on day one, plan it for week three.
 
 ---
-
 
 ---
 
