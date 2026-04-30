@@ -75,7 +75,8 @@ var orders = await db.Orders
 | **`AsSingleQuery()`** | Single round-trip matters (latency-sensitive endpoint), point lookups, or you need a consistent snapshot — multiple statements can see different rows under read-committed. |
 
 - If you set `UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)` globally, keep `AsSingleQuery()` as the per-query escape hatch.
-- On EF Core 9 and earlier, split queries require a **stable, unique ordering** on the principal — add `OrderBy(x => x.Id)` if your query lacks one, or pagination becomes non-deterministic. EF Core 10 relaxes this for many shapes, but adding the ordering remains the safe default.
+- On EF Core 9 and earlier, split queries require a **stable, unique ordering** on the principal — add `OrderBy(x => x.Id)` if your query lacks one, or pagination becomes non-deterministic.
+- EF Core 10 fixes split-query ordering consistency by automatically including the principal's key in the inner subquery `ORDER BY`, so `Skip`/`Take` + `Include` + `AsSplitQuery` no longer silently returns mismatched rows. Adding an explicit unique `OrderBy` is still the safe default.
 
 ### IQueryable boundaries
 
@@ -104,7 +105,9 @@ var rows = await db.Users
 ```
 
 - Use `FromSqlInterpolated` / `ExecuteSqlInterpolated` — they parameterize. **Never** concatenate user input into `FromSqlRaw`.
-- EF10: `ExecuteUpdateAsync` now accepts regular C# lambdas (not just expression trees) — use it for set-based updates without loading entities.
+- EF10: `ExecuteUpdateAsync` now accepts regular C# lambdas (not just expression trees) — use it for set-based updates without loading entities, especially when the setter chain is built dynamically (`Action<SetPropertyCalls<T>>` overload, no more `Expression.Lambda` gymnastics).
+- EF10 also enables `ExecuteUpdate` over JSON-mapped **complex type** properties (e.g. `s.SetProperty(b => b.Details.Views, b => b.Details.Views + 1)`) — another reason to prefer complex types over owned entities for value objects.
+- `SetProperty` cannot reference navigation properties (`s.SetProperty(b => b.Owner.Name, ...)` won't translate) — flatten or split the update.
 
 > **Caveat — `ExecuteUpdateAsync` / `ExecuteDeleteAsync` bypass the change tracker, `SaveChanges` interceptors, the outbox, and any `ISaveChangesInterceptor` you rely on for auditing or domain events.** Tracked entities in the same context go stale silently. Rules:
 >
@@ -121,6 +124,7 @@ var rows = await db.Users
 | **Aggregate root** | Has its own identity, lifecycle, and is a query/aggregation boundary. |
 
 - Prefer **complex types** for new value-object modeling on relational providers — they replace the owned-entity-as-value-object hack and don't carry a hidden shadow key.
+- On **EF Core 10** specifically, complex types now support **optional values, JSON mapping (`ComplexProperty(...).ToJson()`), .NET structs, and `ExecuteUpdate`** — owned entities should be reserved for cases with true identity / separate lifecycle.
 - **Primary constructors** (C# 12+): fine on DTOs, records, value objects, and complex types. On **EF tracked entities**, only use them after you've verified materialization works for your provider, that lazy-loading proxies (if any) can still subclass, and that navigation properties remain settable. The safe default is a parameterless ctor (public or private) plus init-only properties.
 
 ### ChangeTracker hygiene
@@ -137,10 +141,16 @@ var rows = await db.Users
 
 Sources:
 - EF Core 10 — what's new: https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew
+- EF Core 10 — complex types: https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew#complex-types
+- EF Core 10 — `ExecuteUpdateAsync` non-expression lambda: https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew#executeupdateasync-now-accepts-a-regular-non-expression-lambda
+- EF Core 10 — `ExecuteUpdate` over JSON columns: https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew#executeupdate-support-for-relational-json-columns
+- EF Core 10 — split-query ordering: https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew#more-consistent-ordering-for-split-queries
+- EF Core 10 — named query filters: https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew#named-query-filters
+- EF Core 9 — what's new: https://learn.microsoft.com/ef/core/what-is-new/ef-core-9.0/whatsnew
 - EF Core performance: https://learn.microsoft.com/ef/core/performance/
 - Single vs split queries: https://learn.microsoft.com/ef/core/querying/single-split-queries
 - `EF.CompileAsyncQuery`: https://learn.microsoft.com/dotnet/api/microsoft.entityframeworkcore.ef.compileasyncquery
-- `ExecuteUpdate` / `ExecuteDelete`: https://learn.microsoft.com/ef/core/saving/execute-insert-update-delete
+- `ExecuteUpdate` / `ExecuteDelete` (incl. navigation caveat): https://learn.microsoft.com/ef/core/saving/execute-insert-update-delete
 - Complex types (EF 8 release notes): https://learn.microsoft.com/ef/core/what-is-new/ef-core-8.0/whatsnew#value-objects-using-complex-types
 - EF team blog: https://devblogs.microsoft.com/dotnet/category/entity-framework/
 - Jon P Smith — entity construction & DDD with EF: https://www.thereformedprogrammer.net/
@@ -171,7 +181,9 @@ builder.Services.AddDbContextPool<AppDb>(o => o.UseSqlServer(cs), poolSize: 128)
 ```
 
 - Pooling removes per-request context construction cost. Real but small (single-digit % typically).
+- Default pool size is **1024** (the `poolSize` arg is optional); once exceeded, EF falls back to non-pooled creation rather than blocking.
 - **Trade-offs**: context must have a simple constructor, any instance state leaks across requests if you're not careful, and interceptors/loggers captured by the first instance stick. Prefer stateless contexts.
+- **Multi-tenant gotcha**: pooled contexts are effectively reused across requests, so `OnConfiguring` runs **once per pooled instance** — read tenant/user from a scoped service injected at request time, not from `IHttpContextAccessor` inside `OnConfiguring`.
 - `AddPooledDbContextFactory<T>` combines pooling + factory for Blazor/workers.
 
 Sources:
@@ -196,8 +208,9 @@ Sources:
 
 ### EF10 notes
 
-- Named query filters: multiple global filters (e.g. soft-delete + tenant) toggleable by name — use `IgnoreQueryFilters("SoftDelete")` selectively instead of all-or-nothing.
-- Native JSON column type on SQL Server/Azure SQL: prefer the `json` type over `nvarchar(max)` for new JSON-mapped properties.
+- Named query filters: multiple global filters (e.g. soft-delete + tenant) toggleable by name — use `IgnoreQueryFilters("SoftDelete")` selectively instead of all-or-nothing. ([docs](https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew#named-query-filters))
+- Native `json` column type on SQL Server 2025 / Azure SQL: enabled when you use `UseAzureSql(...)` or `UseSqlServer(..., o => o.UseCompatibilityLevel(170))`. Existing `nvarchar` JSON columns auto-migrate to the `json` type on the next migration unless you opt out via `HasColumnType("nvarchar(max)")` per property.
+- Vector search GA: `SqlVector<float>` mapping plus `EF.Functions.VectorDistance` on SQL Server 2025 / Azure SQL — usable for AI/RAG workloads without dropping to ADO.NET.
 
 ### Scripts vs bundles vs `Database.Migrate()`
 
@@ -222,7 +235,9 @@ Schema changes ship across **multiple releases**. The deploy that introduces the
 
 Sources:
 - Applying migrations (scripts, bundles, runtime): https://learn.microsoft.com/ef/core/managing-schemas/migrations/applying
-- Migration bundles announcement: https://devblogs.microsoft.com/dotnet/announcing-ef-core-7-rc1/#migration-bundles
+- Migration bundles (canonical docs): https://learn.microsoft.com/ef/core/managing-schemas/migrations/applying#bundles
+- EF Core 10 — JSON type support: https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew#json-type-support
+- EF Core 10 — vector search support: https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew#vector-search-support
 - Andrew Lock — running EF migrations on startup safely: https://andrewlock.net/
 - Postgres `CREATE INDEX CONCURRENTLY`: https://www.postgresql.org/docs/current/sql-createindex.html
 
@@ -350,12 +365,18 @@ o.UseSqlServer(cs, sql => sql.EnableRetryOnFailure(
 ```
 
 - Enable retry for transient failures (Azure SQL, cloud Postgres). On Azure SQL specifically prefer **`UseAzureSql(...)`** (EF 9+) — it auto-configures Azure-tuned resiliency (transient error list, retry policy) without you maintaining the magic-numbers list. Reserve `UseSqlServer(...EnableRetryOnFailure(...))` for on-prem / generic SQL Server.
+- **EF 9+ escape hatch**: when `UseSqlServer` is called by code you don't control (scaffolded `DbContext`, third-party library), call `optionsBuilder.ConfigureSqlEngine(c => c.EnableRetryOnFailureByDefault())` to flip retries on without rewriting the provider call.
 - **Caveat**: execution strategies disable user-initiated transactions. Wrap in `strategy.ExecuteAsync(async () => { using var txn = ...; })`.
+
+> **.NET Aspire**: if you're composing services with Aspire, prefer the Aspire EF client integrations — `Aspire.Microsoft.EntityFrameworkCore.SqlServer` (`AddSqlServerDbContext` / `EnrichSqlServerDbContext`), `Aspire.Npgsql.EntityFrameworkCore.PostgreSQL` (`AddNpgsqlDbContext` / `EnrichNpgsqlDbContext`), and `Aspire.Microsoft.EntityFrameworkCore.Cosmos` (`AddCosmosDbContext`). They auto-enable retries (`DisableRetry` defaults to `false`), health checks, OpenTelemetry, and structured logging — don't double-configure `EnableRetryOnFailure` on top. Use the `EnrichXxxDbContext` variants when you need to keep your own `AddDbContext` registration.
 
 Sources:
 - EF Core performance: https://learn.microsoft.com/ef/core/performance/
 - Connection resiliency: https://learn.microsoft.com/ef/core/miscellaneous/connection-resiliency
-- SQL Server provider (`UseAzureSql`): https://learn.microsoft.com/ef/core/providers/sql-server/
+- SQL Server provider — connection resiliency (`UseAzureSql`, `ConfigureSqlEngine`): https://learn.microsoft.com/ef/core/providers/sql-server/#connection-resiliency
+- Aspire SQL Server EF client integration: https://aspire.dev/integrations/databases/efcore/sql-server/sql-server-client/
+- Aspire PostgreSQL EF client integration: https://aspire.dev/integrations/databases/efcore/postgres/postgresql-client/
+- Aspire Cosmos DB EF client integration: https://aspire.dev/integrations/cloud/azure/azure-cosmos-db/azure-cosmos-db-get-started/
 - Ben Adams — high-perf .NET: https://blog.marcgravell.com/ and https://twitter.com/ben_a_adams
 - Shay Rojansky — query plans, Npgsql perf: https://www.roji.org/
 
@@ -366,9 +387,10 @@ Sources:
 ### SQL Server / Azure SQL
 - Use `Microsoft.Data.SqlClient` (not `System.Data.SqlClient` — deprecated).
 - **Azure SQL: prefer `UseAzureSql(connectionString)`** — it bundles the Azure-specific transient-error list and resiliency settings. Drop manual `EnableRetryOnFailure` tuning unless you have a measured reason.
-- For generic SQL Server (on-prem, containers, IaaS): `UseSqlServer(cs, sql => sql.EnableRetryOnFailure(...))`.
+- For generic SQL Server (on-prem, containers, IaaS): `UseSqlServer(cs, sql => sql.EnableRetryOnFailure(...))`. If the call site is owned by scaffolded/third-party code, use `optionsBuilder.ConfigureSqlEngine(c => c.EnableRetryOnFailureByDefault())` (EF 9+).
 - Connection string essentials: `Encrypt=True`, `TrustServerCertificate=False`, prefer `Authentication=Active Directory Default` over passwords.
-- EF10: native `json` type mapping — opt in for new models.
+- EF10: native `json` column type triggered by `UseAzureSql(...)` or `UseSqlServer(..., o => o.UseCompatibilityLevel(170))`; existing `nvarchar` JSON columns auto-migrate on the next migration unless you opt out per property.
+- EF10: `SqlVector<float>` mapping + `EF.Functions.VectorDistance` for SQL Server 2025 / Azure SQL vector search.
 
 ### PostgreSQL (Npgsql)
 - `Npgsql.EntityFrameworkCore.PostgreSQL` — tracks EF major versions.
@@ -398,6 +420,11 @@ Cosmos is a **document database** wearing an EF face. Modeling rules from relati
 - Concurrency: ETag (`_etag`) — map via `IsETagConcurrency()`.
 - Migrations don't exist; you ship schema in code and version documents (`schemaVersion` field + read-side upgrade).
 
+**EF9 / EF10 deltas worth knowing**
+- **EF9+**: partition-key predicates in `Where` are extracted automatically — `db.Orders.Where(o => o.TenantId == t && o.Id == id)` becomes a true point read (`ReadItem`), not a cross-partition query. Stop hand-rolling `WithPartitionKey(...)` for the common shape.
+- **EF9+**: hierarchical partition keys via `HasPartitionKey(a, b, c)` — supports the multi-level partitioning Cosmos exposes natively.
+- **EF10**: full-text search, hybrid (RRF) search, and vector search GA on the Cosmos provider; Cosmos operations also flow through the standard `ExecutionStrategy` for retry-aware transactional batches.
+
 **Cost discipline**
 - Watch RU charge per query in App Insights / diagnostics — it's the latency signal that matters.
 - Bulk writes: `AllowBulkExecution = true` on the underlying `CosmosClient`, then fan out via `Task.WhenAll`.
@@ -405,6 +432,8 @@ Cosmos is a **document database** wearing an EF face. Modeling rules from relati
 
 Sources:
 - EF Core Cosmos provider: https://learn.microsoft.com/ef/core/providers/cosmos/
+- EF Core 9 — Cosmos updates: https://learn.microsoft.com/ef/core/what-is-new/ef-core-9.0/whatsnew#azure-cosmos-db-for-nosql
+- EF Core 10 — what's new (Cosmos full-text/hybrid/vector search): https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew
 - Cosmos partitioning guidance: https://learn.microsoft.com/azure/cosmos-db/partitioning-overview
 - Cosmos request units: https://learn.microsoft.com/azure/cosmos-db/request-units
 - EF team blog — Cosmos updates: https://devblogs.microsoft.com/dotnet/category/entity-framework/
@@ -427,6 +456,7 @@ Sources:
 - Never `.Result`, `.Wait()`, `GetAwaiter().GetResult()` on a `DbContext` call. Deadlocks in sync contexts, thread-pool starvation in server code.
 - Flow `HttpContext.RequestAborted` / `IHostApplicationLifetime.ApplicationStopping` into queries. Long reports become cancellable for free.
 - `ConfigureAwait(false)` is irrelevant in ASP.NET Core (no sync context). Still required in libraries.
+- `ConfigureAwaitOptions` (.NET 8+, e.g. `SuppressThrowing`, `ContinueOnCapturedContext`, `ForceYielding`) is a `Task`-level option for specific helpers, **not** a replacement for `.ConfigureAwait(false)` on library data-access calls.
 
 Sources:
 - Async guidance (David Fowler): https://github.com/davidfowl/AspNetCoreDiagnosticScenarios/blob/master/AsyncGuidance.md
@@ -532,6 +562,7 @@ Sources:
 | **EF "second-level" cache libraries** | Avoid. There is **no official EF L2 cache**. Third-party interceptors (e.g. `EFCoreSecondLevelCacheInterceptor`) miss invalidation from raw SQL, `ExecuteUpdate`, triggers, and other contexts. Prefer explicit cache-aside at the query you want to cache. |
 
 ```csharp
+// dotnet add package Microsoft.Extensions.Caching.Hybrid
 builder.Services.AddHybridCache();
 var dto = await cache.GetOrCreateAsync(
     $"user:{id}",
@@ -549,7 +580,7 @@ var dto = await cache.GetOrCreateAsync(
 - `ExecuteUpdate`/`ExecuteDelete` and raw SQL **do not** trigger your cache invalidation hooks — invalidate explicitly at those call sites.
 
 Sources:
-- HybridCache: https://learn.microsoft.com/aspnet/core/performance/caching/hybrid
+- HybridCache (and `Microsoft.Extensions.Caching.Hybrid` NuGet): https://learn.microsoft.com/aspnet/core/performance/caching/hybrid
 - OutputCache middleware: https://learn.microsoft.com/aspnet/core/performance/caching/output
 - Distributed caching: https://learn.microsoft.com/aspnet/core/performance/caching/distributed
 - Andrew Lock on HybridCache: https://andrewlock.net/
@@ -591,12 +622,15 @@ Sources:
 
 **Authoritative**
 - What's new in EF Core 10 — https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew
+- What's new in EF Core 9 — https://learn.microsoft.com/ef/core/what-is-new/ef-core-9.0/whatsnew
 - EF Core performance docs — https://learn.microsoft.com/ef/core/performance/
 - EF Core testing guidance (incl. "don't use InMemory") — https://learn.microsoft.com/ef/core/testing/
 - `DbContext` lifetime — https://learn.microsoft.com/ef/core/dbcontext-configuration/
 - Migrations in production — https://learn.microsoft.com/ef/core/managing-schemas/migrations/applying
 - Concurrency conflicts — https://learn.microsoft.com/ef/core/saving/concurrency
 - Connection resiliency — https://learn.microsoft.com/ef/core/miscellaneous/connection-resiliency
+- SQL Server provider — connection resiliency — https://learn.microsoft.com/ef/core/providers/sql-server/#connection-resiliency
+- Aspire EF client integrations (SQL Server / PostgreSQL / Cosmos) — https://aspire.dev/integrations/databases/efcore/sql-server/sql-server-client/
 - HybridCache — https://learn.microsoft.com/aspnet/core/performance/caching/hybrid
 - Data Protection — https://learn.microsoft.com/aspnet/core/security/data-protection/
 - `Microsoft.Data.SqlClient` — https://learn.microsoft.com/sql/connect/ado-net/microsoft-ado-net-sql-server
