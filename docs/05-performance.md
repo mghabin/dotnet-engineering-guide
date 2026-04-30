@@ -4,14 +4,22 @@ Dense, opinionated, sourced. Targets **.NET 10 (LTS, Nov 2025)**. Assumes ASP.NE
 
 > **The single rule:** measure, don't guess. Every "do" below has a "don't" because someone shipped the don't and regretted it.
 
+**Decisive defaults (this chapter, in one place):**
+
+- **Default benchmarking framework: BenchmarkDotNet.** No fallback. Everything else is BenchmarkDotNet with bugs — `Stopwatch` loops, custom harnesses, `xUnit` "perf tests" all skip warmup, JIT tier promotion, and statistical analysis. See §1 and §15.
+- **Default live-process profiler: `dotnet-trace`.** Cross-platform, sampled, ships in the SDK toolset, feeds PerfView and Speedscope. **Fallback: PerfView on Windows** when you need full ETW depth; **JetBrains dotTrace/dotMemory** when a GUI is non-negotiable for the audience. See §1.
+- **Default container GC mode: Server GC + concurrent + DATAS.** ASP.NET Core's host turns Server GC on; .NET 9+ makes DATAS the default Server-GC sub-mode. **Fallback: Workstation GC** — and the runtime forces it for you when the container sees `< 1` logical CPU, regardless of config. See §9 and §11.
+- **Default container base image: `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`.** Distroless, non-root, ~100 MB. **Fallback: `azurelinux`** when you need a Microsoft-supported distro with a shell for debugging. See §11 and [Chapter 06 §2 — Containerization](./06-cloud-native.md#2-containerization--no-dockerfile-if-you-can-avoid-it).
+- **Runtime knobs that belong here, not scattered:** GC mode, DATAS, tiered compilation, dynamic PGO, ReadyToRun, NativeAOT, container env-vars (`DOTNET_*`). The *foundational* runtime-config surface — how to set them per-process via `runtimeconfig.json` / `<RuntimeHostConfigurationOption>` / env-vars — is owned by [Chapter 01 §12 — Runtime configuration](./01-foundations.md#12-runtime-configuration); this chapter decides *which values* to ship.
+
 ---
 
 ## 1. Methodology — measure first, always
 
 **Do**
 - Start from a **macro metric** that matters: p50/p95/p99 latency, RPS, allocations/sec, CPU%, GC pause time, working set. If you can't tie a micro-win to a macro metric, you're polishing brass.
-- For micro-benchmarks: **BenchmarkDotNet (BDN)**. Always. It handles warmup, pilot, JIT tier promotion, statistical analysis, and process isolation. Anything you write with `Stopwatch` in a `for` loop is wrong by default (cold JIT, no warmup, dead-code elimination, tier-0 code).
-- For live processes: **`dotnet-counters`** (cheap, EventCounters/Meter), **`dotnet-trace`** (sampled CPU/events, cross-platform), **`dotnet-gcdump`**, **`dotnet-dump`**, **PerfView** (Windows ETW, deepest), **`perf`/LTTng** on Linux, **EventPipe** as the cross-platform substrate. **Visual Studio Profiler** and **JetBrains dotTrace/dotMemory** for GUI-driven analysis.
+- For micro-benchmarks: **BenchmarkDotNet (BDN). Default; no fallback.** It handles warmup, pilot, JIT tier promotion, statistical analysis, and process isolation. Anything you write with `Stopwatch` in a `for` loop is wrong by default (cold JIT, no warmup, dead-code elimination, tier-0 code). For methodology and statistics, read Akinshin's *Pro .NET Benchmarking* and Sitnik's posts — they wrote the tool.
+- For live processes the **default is `dotnet-trace`** (sampled CPU/events, cross-platform, in-the-SDK), paired with **`dotnet-counters`** for cheap continuous EventCounter/Meter sampling and **`dotnet-gcdump` / `dotnet-dump`** for memory snapshots. **Fallbacks, in order:** **PerfView** (Windows, ETW, deepest call-stack and GC analysis available), **JetBrains dotTrace/dotMemory** (GUI-driven, best for handing artefacts to non-perf engineers), **`perf` / LTTng** (Linux kernel-level when you suspect the kernel). **EventPipe** is the cross-platform substrate underneath; **Visual Studio Profiler** is fine if you're already in VS.
 - **Instrument before you optimize.** Tools above are *consumers*; the signals must exist first. Emit app-level metrics with **`System.Diagnostics.Metrics.Meter`** (OpenTelemetry-compatible) or a custom **`EventSource`** / **`EventCounters`** for: queue length, payload size, allocations per request, cache hit rate, per-stage latency (auth, deserialize, handler, serialize, downstream). `dotnet-counters` and OTel collectors then scrape them; without instrumentation you're profiling blind.
 - **Cold-start vs steady-state are different benchmarks.** BDN warms the JIT and reports steady-state — that's the wrong tool for measuring R2R / NativeAOT / source-generator wins, which mostly move *startup*. For startup, run the published binary as a fresh process N times (e.g. 30+ launches), no warmup, and measure time-to-first-request, time-to-`Main`-exit, or time-to-`Application started`. Use `dotnet-trace collect --providers Microsoft-Windows-DotNETRuntime` on the launches and aggregate. Keep both numbers; one win can hide the other regression.
 - Isolate variables. One change per benchmark run. Pin CPU governors (`cpupower frequency-set -g performance`), disable turbo or accept the noise, run on quiet hardware, kill antivirus.
@@ -25,9 +33,11 @@ Dense, opinionated, sourced. Targets **.NET 10 (LTS, Nov 2025)**. Assumes ASP.NE
 - Don't report a NativeAOT/R2R/source-gen win using a steady-state BDN number. Show the cold-start histogram.
 
 **Sources:**
+- BenchmarkDotNet — overview and how-it-works: https://benchmarkdotnet.org/articles/overview.html, https://benchmarkdotnet.org/articles/guides/how-it-works.html
+- Andrey Akinshin — *Pro .NET Benchmarking: The Art of Performance Measurement* (Apress, 2019, ISBN 978-1-4842-4940-6) — https://aakinshin.net/prodotnetbenchmarking/ — the reference on BDN methodology, statistical analysis, and benchmark pitfalls.
+- Adam Sitnik (BDN maintainer / .NET perf team) — https://adamsitnik.com/ — practical BenchmarkDotNet recipes and perf-investigation walk-throughs.
 - Stephen Toub, "Performance Improvements in .NET 10" — https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-10/
-- BenchmarkDotNet — how it works: https://benchmarkdotnet.org/articles/guides/how-it-works.html
-- .NET diagnostic tools overview: https://learn.microsoft.com/dotnet/core/diagnostics/
+- .NET diagnostic tools overview (`dotnet-trace`, `dotnet-counters`, `dotnet-dump`, `dotnet-gcdump`): https://learn.microsoft.com/dotnet/core/diagnostics/
 - `System.Diagnostics.Metrics` & OpenTelemetry .NET: https://learn.microsoft.com/dotnet/core/diagnostics/metrics
 
 ---
@@ -68,11 +78,13 @@ Pooling that forgets to release is *retained* memory, not *recycled* memory. Eve
 - Don't rent without a `try/finally` (or `using` for `IMemoryOwner<T>` / `RecyclableMemoryStream`). A leaked rent is a leak that compounds under load.
 
 **Sources:**
-- Stephen Toub on pooling and `Span<T>`: https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-10/
+- Stephen Toub, "Performance Improvements in .NET 10" (pooling, `Span<T>`, allocation reductions) — https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-10/
+- Adam Sitnik on `ArrayPool<T>` / pooling correctness — https://adamsitnik.com/Array-Pool/
+- Ben Adams (Kestrel/ASP.NET Core perf, allocation hunting) — https://github.com/benaadams — see his Kestrel zero-allocation work for the original case studies.
+- Konrad Kokosa, *Pro .NET Memory Management* (Apress, 2018, ISBN 978-1-4842-4026-7) — https://prodotnetmemory.com/ — LOH, pooling, retention semantics, GC-heap layout.
 - `ArrayPool<T>` / `MemoryPool<T>` / `IMemoryOwner<T>`: https://learn.microsoft.com/dotnet/api/system.buffers.arraypool-1, https://learn.microsoft.com/dotnet/api/system.buffers.memorypool-1
 - `Microsoft.IO.RecyclableMemoryStream`: https://github.com/microsoft/Microsoft.IO.RecyclableMemoryStream
 - `System.IO.Pipelines`: https://learn.microsoft.com/dotnet/standard/io/pipelines
-- Konrad Kokosa, *Pro .NET Memory Management* — LOH, pooling, retention semantics.
 
 ---
 
@@ -118,6 +130,7 @@ Pooling that forgets to release is *retained* memory, not *recycled* memory. Eve
 - `System.Collections.Frozen`: https://learn.microsoft.com/dotnet/api/system.collections.frozen
 - `CollectionsMarshal`: https://learn.microsoft.com/dotnet/api/system.runtime.interopservices.collectionsmarshal
 - Stephen Toub on collections improvements (annual perf posts): https://devblogs.microsoft.com/dotnet/author/toub/
+- Adam Sitnik on `FrozenDictionary`/`FrozenSet` benchmarks — https://adamsitnik.com/
 
 ---
 
@@ -196,10 +209,12 @@ Reflection is allocation, slow startup, and AOT-hostile. Most reasons to use it 
 - Don't `Task.Run(() => syncMethod())` to "make it async" in ASP.NET Core. It steals threadpool threads from real work.
 
 **Sources:**
-- Stephen Toub, "ValueTask restrictions": https://devblogs.microsoft.com/dotnet/understanding-the-whys-whats-and-whens-of-valuetask/
+- Stephen Toub, "Understanding the whys, whats, and whens of `ValueTask`": https://devblogs.microsoft.com/dotnet/understanding-the-whys-whats-and-whens-of-valuetask/
 - `System.Threading.Channels` overview: https://learn.microsoft.com/dotnet/core/extensions/channels
 - `IAsyncEnumerable<T>` patterns: https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/generate-consume-asynchronous-stream
 - Stephen Cleary on async semantics: https://blog.stephencleary.com/
+- Adam Sitnik on async state-machine pooling and `ValueTask` benchmarks — https://adamsitnik.com/
+- `async`/`await`, `ConfigureAwait`, `CancellationToken` propagation as the language baseline → [Chapter 01 §4 — Async](./01-foundations.md#4-async).
 
 ---
 
@@ -225,19 +240,19 @@ Reflection is allocation, slow startup, and AOT-hostile. Most reasons to use it 
 **Trimming** (`<PublishTrimmed>true</PublishTrimmed>`, modes `partial` / `full`): removes unreferenced IL. Required for AOT. Annotate with `[DynamicallyAccessedMembers]` / `[RequiresUnreferencedCode]`; treat trim warnings as errors (`<TrimmerSingleWarn>false</TrimmerSingleWarn>`, `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>`).
 
 **Sources:**
+- Stephen Toub, "Performance Improvements in .NET 10/9/8" (DPGO, tiering, AOT codegen) — https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-10/, https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-9/, https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-8/
 - ReadyToRun & crossgen2: https://learn.microsoft.com/dotnet/core/deploying/ready-to-run
 - NativeAOT deployment & limitations: https://learn.microsoft.com/dotnet/core/deploying/native-aot/
 - Trimming overview: https://learn.microsoft.com/dotnet/core/deploying/trimming/
 - Tiered compilation / Quick JIT / DPGO config: https://learn.microsoft.com/dotnet/core/runtime-config/compilation
-- What's new in the .NET 8 runtime (DPGO default-on, AVX-512, physical promotion): https://learn.microsoft.com/dotnet/core/whats-new/dotnet-8/runtime
-- What's new in the .NET 10 runtime (struct-arg promotion, loop inversion, DPGO): https://learn.microsoft.com/dotnet/core/whats-new/dotnet-10/runtime
-- Stephen Toub, "Performance Improvements in .NET 10" — https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-10/
-- Stephen Toub, "Performance Improvements in .NET 9" — https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-9/
-- Stephen Toub, "Performance Improvements in .NET 8" — https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-8/
+- Adam Sitnik on NativeAOT trade-offs and trim-warning workflow — https://adamsitnik.com/
+- Runtime config knobs (`runtimeconfig.json`, `<RuntimeHostConfigurationOption>`, `DOTNET_*` env-vars) → [Chapter 01 §12 — Runtime configuration](./01-foundations.md#12-runtime-configuration); this chapter only picks the values.
 
 ---
 
 ## 9. GC
+
+**Default for server workloads, decided here:** **Server GC + concurrent/background + DATAS.** ASP.NET Core's host opts the process into Server GC; .NET 9 made DATAS the default Server-GC sub-mode. Don't disable either without a benchmark that names what you're optimizing for. **Fallback: Workstation GC** — and you don't pick it, the runtime picks it for you when the container sees fewer than one logical CPU.
 
 **Modes**:
 - **Server GC** (`<ServerGarbageCollection>true</ServerGarbageCollection>` / `System.GC.Server`): one heap and one GC thread per logical CPU, parallel collection, larger segments. Higher throughput, higher memory floor. **The runtime default is Workstation GC**; ASP.NET Core's host opts the process into Server GC. **On a single-logical-CPU machine (or a container with cgroup CPU < 1) the runtime forces Workstation GC regardless of config** — relevant when you tightly CPU-limit a sidecar.
@@ -261,14 +276,15 @@ Reflection is allocation, slow startup, and AOT-hostile. Most reasons to use it 
 **Diagnose**: `dotnet-counters monitor System.Runtime` (gen sizes, % time in GC, alloc rate), `dotnet-gcdump`, PerfView GCStats, the GC ETW/EventPipe events.
 
 **Sources:**
+- Konrad Kokosa, *Pro .NET Memory Management* (Apress, 2018, ISBN 978-1-4842-4026-7) — https://prodotnetmemory.com/ — the definitive book on the runtime memory model, GC heap layout, and pause-time analysis.
+- Maoni Stephens (.NET GC architect) on GC internals — https://maoni0.medium.com/
+- Stephen Toub, "Performance Improvements in .NET 9" (DATAS explainer) — https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-9/
 - GC fundamentals: https://learn.microsoft.com/dotnet/standard/garbage-collection/fundamentals
 - Workstation vs Server GC (defaults, single-CPU rule): https://learn.microsoft.com/dotnet/standard/garbage-collection/workstation-server-gc
 - Latency modes: https://learn.microsoft.com/dotnet/standard/garbage-collection/latency
-- What's new in the .NET 9 runtime (DATAS as default): https://learn.microsoft.com/dotnet/core/whats-new/dotnet-9/runtime
 - GC configuration knobs (`Server`, `DynamicAdaptationMode`, `HeapHardLimit*`, `RetainVM`): https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector
-- Stephen Toub, "Performance Improvements in .NET 9" (DATAS explainer) — https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-9/
-- Konrad Kokosa, *Pro .NET Memory Management* (Apress, 2018) — https://prodotnetmemory.com/
-- Maoni Stephens on GC internals: https://maoni0.medium.com/
+- Process-level runtime config wiring for these knobs → [Chapter 01 §12 — Runtime configuration](./01-foundations.md#12-runtime-configuration).
+- Pod-level memory requests/limits and QoS class that the GC reads → [Chapter 06 §3 — Kubernetes / AKS](./06-cloud-native.md#3-kubernetes--aks--probes-limits-gc-shutdown).
 
 ---
 
@@ -296,12 +312,15 @@ Reflection is allocation, slow startup, and AOT-hostile. Most reasons to use it 
 - `SocketsHttpHandler`: https://learn.microsoft.com/dotnet/api/system.net.http.socketshttphandler
 - `System.IO.Pipelines`: https://learn.microsoft.com/dotnet/standard/io/pipelines
 - HTTP/3 in Kestrel: https://learn.microsoft.com/aspnet/core/fundamentals/servers/kestrel/http3
+- Ben Adams on Kestrel `SocketsHttpHandler` / Pipelines internals — https://github.com/benaadams
 
 ---
 
 ## 11. Containers — what to set
 
 There is **no universal "perf-tuned" env-var set**. The runtime defaults are good. Each tunable below moves a specific axis (startup vs steady-state vs memory) and can regress the others. Decide per service, then bake into the image. (**Env-var prefix:** `DOTNET_` is the standardized prefix since .NET 6; the old `COMPlus_` names still work but new code should use `DOTNET_`.)
+
+**Default base image, decided here:** **`mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`** — distroless, non-root (UID 1654), ~100 MB, no shell, smaller CVE surface. **Fallback: `azurelinux`** when you need a Microsoft-supported distro that includes a shell for in-container debugging; **`alpine`** only when image size dominates and you've audited native interop for musl. The Dockerfile baseline that wires this image into a multi-stage SDK build belongs to [Chapter 06 §2 — Containerization](./06-cloud-native.md#2-containerization--no-dockerfile-if-you-can-avoid-it); this chapter only picks the runtime knobs that go into the `ENV` lines.
 
 **Minimal Dockerfile (no tuning, just sane base):**
 
@@ -354,6 +373,10 @@ ENV DOTNET_GCHeapHardLimitPercent=75
 - Tiered compilation & PGO: https://learn.microsoft.com/dotnet/core/runtime-config/compilation
 - Chiseled containers: https://devblogs.microsoft.com/dotnet/dotnet-6-is-now-in-ubuntu-2204/ (and follow-ups), https://learn.microsoft.com/dotnet/core/docker/container-images
 - SDK container publish: https://learn.microsoft.com/dotnet/core/docker/publish-as-container
+- Adam Sitnik on container env-var benchmarking — https://adamsitnik.com/
+- How to *set* these env-vars per host (`runtimeconfig.json`, `<RuntimeHostConfigurationOption>`, `ENV` precedence) → [Chapter 01 §12 — Runtime configuration](./01-foundations.md#12-runtime-configuration).
+- Dockerfile / chiseled-image baseline that consumes these env-vars → [Chapter 06 §2 — Containerization](./06-cloud-native.md#2-containerization--no-dockerfile-if-you-can-avoid-it).
+- Pod sizing, QoS class, and the `cpu` requests/limits that the GC reads → [Chapter 06 §3 — Kubernetes / AKS](./06-cloud-native.md#3-kubernetes--aks--probes-limits-gc-shutdown).
 
 ---
 
@@ -384,6 +407,7 @@ ENV DOTNET_GCHeapHardLimitPercent=75
 **Sources:**
 - `LoggerMessage` source generator: https://learn.microsoft.com/dotnet/core/extensions/logger-message-generator
 - High-performance logging: https://learn.microsoft.com/dotnet/core/extensions/high-performance-logging
+- Logging primitives, `ILogger<T>`, and source-generated loggers as the language baseline → [Chapter 01 — foundations](./01-foundations.md#chapter-01--foundations).
 
 ---
 
@@ -401,10 +425,12 @@ ENV DOTNET_GCHeapHardLimitPercent=75
 - **`[SkipLocalsInit]`** on methods that `stackalloc` large buffers and immediately overwrite — skips `init`-zero of locals. Measure; sometimes negligible.
 
 **Sources:**
+- Stephen Toub on SIMD/intrinsics improvements (annual posts): https://devblogs.microsoft.com/dotnet/author/toub/
+- Adam Sitnik on SIMD / `Vector256`-vs-`Vector512` benchmarks — https://adamsitnik.com/
+- Ben Adams on `SearchValues<T>` and vectorized search — https://github.com/benaadams
 - `System.Runtime.Intrinsics`: https://learn.microsoft.com/dotnet/api/system.runtime.intrinsics
 - `Vector512<T>` (introduced .NET 8, runtime auto-detection): https://learn.microsoft.com/dotnet/api/system.runtime.intrinsics.vector512
 - `SearchValues<T>`: https://learn.microsoft.com/dotnet/api/system.buffers.searchvalues
-- Stephen Toub on SIMD/intrinsics improvements (annual posts): https://devblogs.microsoft.com/dotnet/author/toub/
 
 ---
 
@@ -422,6 +448,7 @@ If you can't draw the flame graph that justifies the change, don't ship the chan
 **Sources:**
 - BenchmarkDotNet `MemoryDiagnoser`: https://benchmarkdotnet.org/articles/configs/diagnosers.html
 - Stephen Toub on LINQ improvements (annual posts): https://devblogs.microsoft.com/dotnet/author/toub/
+- Adam Sitnik on `[MemoryDiagnoser]` interpretation — https://adamsitnik.com/
 
 ---
 
@@ -487,8 +514,10 @@ BDN measures *steady-state*. Startup wins from R2R, NativeAOT, and source genera
 - BenchmarkDotNet docs: https://benchmarkdotnet.org/articles/overview.html
 - BDN how-it-works (warmup, pilot, statistics): https://benchmarkdotnet.org/articles/guides/how-it-works.html
 - BenchmarkDotNet v0.14.0 release notes (dotMemory diagnoser, ScottPlot exporter, .NET 8 `UseArtifactsOutput` fix): https://github.com/dotnet/BenchmarkDotNet/releases/tag/v0.14.0
-- Akinshin, Andrey. *Pro .NET Benchmarking: The Art of Performance Measurement*. Apress, 2019. ISBN 978-1-4842-4940-6 — https://aakinshin.net/prodotnetbenchmarking/
-- dotnet/performance benchmark suite: https://github.com/dotnet/performance
+- Andrey Akinshin, *Pro .NET Benchmarking: The Art of Performance Measurement* (Apress, 2019, ISBN 978-1-4842-4940-6) — https://aakinshin.net/prodotnetbenchmarking/ — full-length reference on warmup, pilot, statistics, and BDN configuration.
+- Adam Sitnik (BenchmarkDotNet maintainer) — https://adamsitnik.com/ — recipes for diagnosers, hardware counters, and `[MemoryDiagnoser]` triage.
+- dotnet/performance benchmark suite (how Microsoft writes the annual posts): https://github.com/dotnet/performance
+- For benchmarks that need a **real database, broker, or downstream container** (BenchmarkDotNet × Testcontainers — `[GlobalSetup]` starts the container, `[GlobalCleanup]` disposes it) → [Chapter 04 §6 — Testcontainers](./04-testing.md#6-testcontainers). Keep these in a separate benchmark assembly from pure CPU/alloc benchmarks; container start-up dwarfs the measurement.
 
 ---
 
