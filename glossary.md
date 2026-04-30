@@ -144,6 +144,16 @@ ASP.NET Core's symmetric key set used by `IDataProtector` for cookies, antiforge
 - **Used in**: ch05 §9, ch06 §3
 - **Sources**: Performance Improvements in .NET 8 — *DATAS* — https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-8/ ; GC config — `GCDynamicAdaptationMode` — https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector
 
+### DistributedApplicationTestingBuilder
+`Aspire.Hosting.Testing.DistributedApplicationTestingBuilder` — test-host builder that boots a full Aspire AppHost (every modeled resource and service) inside an integration test, exposing typed `HttpClient`s and connection strings so `WebApplicationFactory`-style tests can cover multi-service composition.
+- **Used in**: ch04 §6, ch06 §1
+- **Sources**: .NET Aspire — *Testing .NET Aspire apps* — https://learn.microsoft.com/dotnet/aspire/fundamentals/testing ; `DistributedApplicationTestingBuilder` API — https://learn.microsoft.com/dotnet/api/aspire.hosting.testing.distributedapplicationtestingbuilder
+
+### dotnet-affected
+.NET CLI tool (`dotnet tool install -g dotnet-affected`) that walks the MSBuild graph from a base git ref and prints only the projects affected by the diff. Default monorepo CI fan-out filter in this guide — feed its output to `dotnet test`/`dotnet build` so PR builds touch only the impacted projects.
+- **Used in**: patterns/monorepo, ch04 §16
+- **Sources**: `dotnet-affected` (leonardochaia) — https://github.com/leonardochaia/dotnet-affected ; NuGet — https://www.nuget.org/packages/dotnet-affected
+
 ## E
 
 ### Enhanced form (Blazor)
@@ -187,6 +197,11 @@ Schema-evolution discipline for zero-downtime EF Core migrations: deploy additiv
 `Microsoft.Extensions.TimeProvider.Testing` test double that lets tests advance virtual time deterministically (`Advance(TimeSpan)`). Pair with code that depends on `TimeProvider` instead of `DateTime.UtcNow`.
 - **Used in**: ch04 §14
 - **Sources**: `Microsoft.Extensions.TimeProvider.Testing` — https://learn.microsoft.com/dotnet/core/extensions/timeprovider ; NuGet — https://www.nuget.org/packages/Microsoft.Extensions.TimeProvider.Testing
+
+### Federated Identity Credentials
+Microsoft Entra app-registration credential that trusts an external OIDC issuer (GitHub Actions, AKS *Workload Identity*, Azure DevOps) instead of a client secret. Default mechanism for keyless auth from CI and pods in this guide; configure per-subject under the app's *Federated credentials* blade or via Microsoft Graph.
+- **Used in**: ch06 §8, checklist
+- **Sources**: Microsoft Entra — *Workload identity federation* — https://learn.microsoft.com/entra/workload-id/workload-identity-federation ; *Configure an app to trust a GitHub repo* — https://learn.microsoft.com/entra/workload-id/workload-identity-federation-create-trust
 
 ### FluentAssertions / AwesomeAssertions / Shouldly / TUnit
 Assertion-library landscape after Fluent Assertions changed its license in 2024. **AwesomeAssertions** is the OSS hard-fork (Apache-2.0); **Shouldly** is the long-standing alternative (BSD-3); **TUnit** ships its own assertion model. New projects in this guide pick AwesomeAssertions or Shouldly; existing FluentAssertions code stays put unless commercial-use thresholds bite.
@@ -502,6 +517,11 @@ Microsoft library (`Microsoft.IO.RecyclableMemoryStream`) — pooled `MemoryStre
 - **Used in**: ch05 §2
 - **Sources**: Microsoft.IO.RecyclableMemoryStream — https://github.com/microsoft/Microsoft.IO.RecyclableMemoryStream
 
+### RequiredScope
+`Microsoft.Identity.Web.Resource.RequiredScopeAttribute` — declarative `scp`-claim check on a controller, action, or minimal endpoint (`[RequiredScope("Orders.Read")]` or `RequireScope(...)`). Use it as the inline guard on delegated endpoints; pair with a separate app-only policy that checks `roles` + `azp` for S2S callers (the policies must not be merged).
+- **Used in**: ch02 §10
+- **Sources**: Microsoft.Identity.Web — *Verifying scopes or app roles* — https://learn.microsoft.com/entra/msal/dotnet/microsoft-identity-web/web-apis ; `RequiredScopeAttribute` API — https://learn.microsoft.com/dotnet/api/microsoft.identity.web.resource.requiredscopeattribute
+
 ### RetainVM
 `GCSettings.LatencyMode` interaction: when `<GCRetainVM>` is set in runtimeconfig, the GC keeps virtual address segments after collection rather than returning them to the OS — trades RSS for fewer page-faults / mmap churn under spiky workloads.
 - **Used in**: ch05 §9
@@ -549,6 +569,11 @@ Shared library project (`*.ServiceDefaults`) referenced by every service in an A
 - **Used in**: ch06 §9
 - **Sources**: ASP.NET Core Data Protection — *Configuration: SetApplicationName* — https://learn.microsoft.com/aspnet/core/security/data-protection/configuration/overview#setapplicationname
 
+### slnx (.NET 9 solution format)
+XML solution-file format (`*.slnx`) that supersedes the legacy `.sln`; GA in Visual Studio 17.14 / .NET SDK 9.0.200 and supported end-to-end by `dotnet sln`, MSBuild, Visual Studio, and Rider. Diff-friendly, human-readable; new repos start here, existing ones migrate with `dotnet sln migrate`.
+- **Used in**: ch01 §1, patterns/monorepo
+- **Sources**: Visual Studio docs — *Solution (.slnx) file* — https://learn.microsoft.com/visualstudio/ide/solutions-files ; .NET Blog — *Introducing slnx support in the .NET CLI* — https://devblogs.microsoft.com/dotnet/introducing-slnx-support-dotnet-cli
+
 ### SocketsHttpHandler
 Cross-platform managed `HttpMessageHandler` (`System.Net.Http.SocketsHttpHandler`) — the substrate `HttpClient` uses by default since .NET Core 2.1. Owns the connection pool, HTTP/2/3 selection, *PooledConnectionLifetime*. Configure it through *IHttpClientFactory*, not directly.
 - **Used in**: ch02 §11, ch05 §10
@@ -591,6 +616,11 @@ Dedicated mutual-exclusion type (`System.Threading.Lock`) that `lock(x)` uses an
 - **Used in**: ch05 §8
 - **Sources**: .NET — *Tiered compilation* — https://learn.microsoft.com/dotnet/standard/runtime/tiered-compilation
 
+### Traversal SDK (Microsoft.Build.Traversal)
+MSBuild project SDK (`<Project Sdk="Microsoft.Build.Traversal/4.x">`) for "build a list of projects" without producing an output assembly. Default mechanism in this guide for repo-wide `dirs.proj` files that drive monorepo build/test fan-out from CI without depending on a `.sln`/`.slnx`.
+- **Used in**: ch01 §1, patterns/monorepo
+- **Sources**: `microsoft/MSBuildSdks` — *Microsoft.Build.Traversal* — https://github.com/microsoft/MSBuildSdks/tree/main/src/Traversal ; NuGet — https://www.nuget.org/packages/Microsoft.Build.Traversal
+
 ## V
 
 ### ValueTask / ValueTask<T>
@@ -624,6 +654,11 @@ Legacy Visual Studio test runtime that hosts test adapters (`vstest.console`, `d
 ASP.NET Core test host (`Microsoft.AspNetCore.Mvc.Testing`) that boots the real `Program` in-process, returning a `HttpClient` bound to a `TestServer`. The integration-test entry point for any HTTP surface in this guide; combine with *Testcontainers* for real backing services and *ICollectionFixture* for sharing.
 - **Used in**: ch04 §5
 - **Sources**: ASP.NET Core — *Integration tests with WebApplicationFactory* — https://learn.microsoft.com/aspnet/core/test/integration-tests
+
+### Workload Identity
+AKS / Kubernetes feature (`azure.workload.identity/use: "true"` on a `ServiceAccount`) that mints a projected OIDC token a pod exchanges, via *Federated Identity Credentials*, for a Microsoft Entra access token — no client secrets, no long-lived credentials, no pod-identity controller. Default keyless workload-auth mechanism in this guide.
+- **Used in**: ch06 §8, checklist
+- **Sources**: Microsoft Entra — *Workload identity federation* — https://learn.microsoft.com/entra/workload-id/workload-identity-federation ; AKS — *Use Microsoft Entra Workload ID* — https://learn.microsoft.com/azure/aks/workload-identity-overview
 
 ### Workstation GC
 .NET garbage-collector mode tuned for client/UI processes: single heap, lower memory ceiling, optimised for responsiveness over throughput. Default for desktop/MAUI; do **not** select for ASP.NET services — use *Server GC* + *DATAS*.
