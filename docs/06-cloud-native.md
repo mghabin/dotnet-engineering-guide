@@ -38,14 +38,22 @@
 - ❌ Don't ship `Aspire.Hosting.*` to prod. Hosting packages belong to the AppHost project, which is a dev-time tool.
 - ❌ Don't assume `AddServiceDefaults()` gives you Kubernetes probes — it doesn't (see §10).
 - ❌ Don't let Aspire's generated Bicep/Helm be the *final* deployment artifact for a regulated workload — it's a starting point; platform teams own the real manifests.
+- ❌ Don't write your own AppHost-graph integration tests from scratch — use **`DistributedApplicationTestingBuilder`** (the rule lives in `ch04`, integration-test patterns there).
+
+**Cross-references:**
+
+- App-graph end-to-end tests against the AppHost → `ch04` (`DistributedApplicationTestingBuilder` is owned there).
+- The Dockerfile/runtime env-vars `ServiceDefaults` users will inherit (`DOTNET_*` GC + tiered/PGO knobs) → `ch05` (container env-vars and GC tuning are owned there); see §2 of this chapter for the image baseline.
+- Logging providers feeding the OTLP log exporter wired by `ServiceDefaults` → `ch01` (logging primitives owned there).
 
 **Sources:**
 
-- Aspire overview — <https://aspire.dev/get-started/aspire-overview/>
+- Aspire overview (community docs hub) — <https://aspire.dev/get-started/aspire-overview/>
 - Integrations overview (hosting vs client) — <https://aspire.dev/integrations/overview/> and <https://learn.microsoft.com/dotnet/aspire/fundamentals/integrations-overview>
-- ServiceDefaults — <https://aspire.dev/get-started/csharp-service-defaults/>
-- Microsoft Learn .NET Aspire — <https://learn.microsoft.com/dotnet/aspire/>
-- Aspire 9 What's New (covers 9 → 13 evolution) — <https://learn.microsoft.com/dotnet/aspire/whats-new/dotnet-aspire-9>
+- ServiceDefaults (community docs hub) — <https://aspire.dev/get-started/csharp-service-defaults/>
+- Aspire testing with `DistributedApplicationTestingBuilder` — <https://aspire.dev/fundamentals/testing/>
+- `dotnet/aspire` source repository — <https://github.com/dotnet/aspire>
+- Aspire 9 → 13 What's New — <https://learn.microsoft.com/dotnet/aspire/whats-new/dotnet-aspire-9>
 
 ---
 
@@ -88,11 +96,18 @@ What you get by default:
 - ❌ Don't bake secrets, connection strings, or `appsettings.Production.json` into the image.
 - ❌ Don't use `:latest`. Ever. Tag with immutable SHAs; promote by digest.
 
+**Cross-references:**
+
+- The `DOTNET_*` env-vars (`DOTNET_TieredPGO`, `DOTNET_GCServer`, `DOTNET_GCDynamicAdaptationMode`, `DOTNET_gcHeapHardLimit`, `DOTNET_GCHeapCount`) baked into this image are **owned by `ch05`** (container env-vars + GC tuning). This chapter only embeds them.
+- NativeAOT trimming/source-generator constraints called out in the Do list → `ch05` (NativeAOT is owned there).
+
 **Sources:**
 
-- Chiseled Ubuntu containers for .NET — <https://github.com/dotnet/dotnet-docker/blob/main/documentation/ubuntu-chiseled.md>
+- `dotnet/dotnet-docker` — chiseled Ubuntu containers for .NET — <https://github.com/dotnet/dotnet-docker/blob/main/documentation/ubuntu-chiseled.md>
+- `dotnet/dotnet-docker` — image catalog & samples — <https://github.com/dotnet/dotnet-docker>
+- OCI Image Format Specification (CNCF) — <https://github.com/opencontainers/image-spec>
+- OWASP Docker Security Cheat Sheet (non-root, read-only FS, no shell) — <https://cheatsheetseries.owasp.org/cheatsheets/Docker_Security_Cheat_Sheet.html>
 - `dotnet publish /t:PublishContainer` — <https://learn.microsoft.com/dotnet/core/docker/publish-as-container>
-- .NET container images — <https://learn.microsoft.com/dotnet/core/docker/container-images>
 
 > **Chiseled in .NET 10 — extensible slices.** Featured tags now include both `8.0-noble-chiseled` and `10.0-noble-chiseled` for `aspnet`, `runtime`, and `runtime-deps` repos under `mcr.microsoft.com/dotnet/*`. There is still **no chiseled SDK image** (build with full Ubuntu SDK, run on chiseled). **New in .NET 10:** the chisel manifest is shipped, so you can install additional package slices (e.g., `libicu74_libs`, `tzdata-legacy_zoneinfo`) via `chisel`/`chisel-wrapper` from `canonical/chisel-releases` — this is your escape hatch when you need ICU/tzdata/native deps without leaving chiseled. **.NET 8/9 chiseled images remain extension-impossible** — you must switch to `noble-chiseled-extra` or full `noble`.
 
@@ -133,17 +148,23 @@ resources:
   limits:   { cpu: "1",    memory: "512Mi" }
 ```
 
-Pick one and **document the choice**:
+Pick one and **document the choice**. Defaults below.
+
+**Default: Guaranteed QoS for any latency-sensitive request-serving pod.** CPU and memory `request == limit`, both set, on every container in the pod.
+
+**Fallback: Burstable QoS** for throughput-sensitive workers / batch / cron on dedicated nodepools where headroom outweighs predictability — and only when the platform team has sized requests honestly so the node isn't oversold.
+
+**Never: BestEffort.** No requests, no limits, first to be evicted. Don't ship this.
 
 ```yaml
-# Guaranteed QoS — latency-sensitive APIs that must not be throttled or evicted
+# Default — Guaranteed QoS — latency-sensitive APIs that must not be throttled or evicted
 resources:
   requests: { cpu: "500m", memory: "512Mi" }
   limits:   { cpu: "500m", memory: "512Mi" }
 ```
 
 ```yaml
-# Burstable QoS — workers / batch where headroom > predictability
+# Fallback — Burstable QoS — workers / batch where headroom > predictability
 resources:
   requests: { cpu: "250m", memory: "256Mi" }
   limits:   { cpu: "1",    memory: "512Mi" }
@@ -166,8 +187,8 @@ Two different Linux primitives:
 
 Pragmatic guidance:
 
-- **Latency-sensitive API**: set CPU `request == limit` (Guaranteed) so the share matches the cap and the slice is predictable.
-- **Throughput-sensitive worker on a dedicated node pool**: consider **omitting the CPU limit** so the pod can burst. You accept that other pods on the same node may compete and that the node is intentionally overcommitted; the platform team must size requests honestly so the node isn't oversold. PDBs and PriorityClasses help with eviction order — they do **not** substitute for CPU fairness.
+- **Latency-sensitive API (default)**: set CPU `request == limit` (Guaranteed QoS) so the share matches the cap and the slice is predictable.
+- **Throughput-sensitive worker on a dedicated node pool (fallback)**: consider **omitting the CPU limit** so the pod can burst. You accept that other pods on the same node may compete and that the node is intentionally overcommitted; the platform team must size requests honestly so the node isn't oversold. PDBs and PriorityClasses help with eviction order — they do **not** substitute for CPU fairness.
 - Always keep a **memory limit**: memory is incompressible, and going over it gets you OOM-killed, not throttled.
 
 ### Graceful shutdown
@@ -212,14 +233,21 @@ builder.Services.Configure<HostOptions>(o =>
 - **PDB always.** `minAvailable: 1` (or `maxUnavailable: 1` for HA workloads) — otherwise node drains take everyone.
 - Scale-to-zero only for truly bursty non-interactive workloads. Cold-start on JIT .NET is 2–5s; NativeAOT is ~100ms.
 
+**Cross-references:**
+
+- Probe endpoints rely on the `IHostApplicationLifetime` and `IHealthCheck` contracts — **owned by `ch01`** (foundations: hosting / lifetime, logging primitives). This chapter wires them to Kubernetes; it does not redefine them.
+- The runtime knobs in the .NET GC notes above (`DOTNET_GCHeapHardLimit`, `DOTNET_GCConserveMemory`, `DOTNET_TieredPGO`, Server GC, DATAS) are **owned by `ch05`** (GC tuning + container env-vars). This section only consumes them.
+- Hosted-service / `BackgroundService` graceful-shutdown patterns referenced by the `preStop` hook are detailed further in §11 below and tested per `ch04`.
+
 **Sources:**
 
 - Kubernetes Pod QoS — <https://kubernetes.io/docs/concepts/workloads/pods/pod-qos/>
 - Manage resources for containers (CPU shares & CFS quota) — <https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/>
 - Probes (canonical concept page) — <https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/>
 - Container lifecycle hooks — <https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/>
+- NIST SP 800-204 — Security Strategies for Microservices-Based Application Systems (resource isolation, container hardening) — <https://csrc.nist.gov/pubs/sp/800/204/final>
 - Hosted services / `HostOptions.ShutdownTimeout` — <https://learn.microsoft.com/aspnet/core/fundamentals/host/hosted-services>
-- Chiseled image constraints — <https://github.com/dotnet/dotnet-docker/blob/main/documentation/ubuntu-chiseled.md>
+- Chiseled image constraints (`dotnet/dotnet-docker`) — <https://github.com/dotnet/dotnet-docker/blob/main/documentation/ubuntu-chiseled.md>
 
 ---
 
@@ -247,7 +275,10 @@ Precedence (high → low) in production:
 
 **Sources:**
 
+- CSI Secrets Store Driver (upstream `kubernetes-sigs`) — <https://secrets-store-csi-driver.sigs.k8s.io/>
 - CSI Secrets Store Driver on AKS — <https://learn.microsoft.com/azure/aks/csi-secrets-store-driver>
+- OWASP Secrets Management Cheat Sheet (precedence, rotation, no-secrets-in-config) — <https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html>
+- NIST SP 800-204 — Security Strategies for Microservices-Based Application Systems — <https://csrc.nist.gov/pubs/sp/800/204/final>
 - ASP.NET Core configuration — <https://learn.microsoft.com/aspnet/core/fundamentals/configuration/>
 
 ---
@@ -301,12 +332,27 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
 
 **Sampling:** tail-based in the collector, not head-based in the app. Sample errors and slow traces at 100%, baseline at 5–10%.
 
+### Default OTLP target — pick one, name the fallback
+
+- **Default (prod):** OTLP/gRPC to an **OpenTelemetry Collector DaemonSet** at `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.observability.svc.cluster.local:4317` and `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`. One pod-local hop, then the Collector fans out to Tempo / Loki / Mimir / Azure Monitor. Vendor SDKs do **not** go on the hot path.
+- **Fallback (prod):** OTLP/HTTP to the same Collector at port `4318` if your network policy / sidecar topology can't carry gRPC.
+- **Default (dev):** OTLP to the Aspire dashboard — AppHost auto-injects `OTEL_EXPORTER_OTLP_ENDPOINT` into every service.
+- **Activation rule:** the exporter is wired at startup but **only activates when `OTEL_EXPORTER_OTLP_ENDPOINT` is non-empty** (matches the OTel spec and what `ServiceDefaults` does internally — no per-environment code branches).
+
+**Cross-references:**
+
+- HTTP server / client OTel instrumentation (`AddAspNetCoreInstrumentation`, `AddHttpClientInstrumentation`, propagation) is **owned by `ch02`** — this section only wires the exporter that ships those spans.
+- Application-level meters (`Meter`, instrument types, low-cardinality tag rules) are **owned by `ch05`** — this section only ships them via OTLP.
+- The logging providers (`Microsoft.Extensions.Logging`, source-generated loggers) feeding `AddOpenTelemetry()` on `builder.Logging` are **owned by `ch01`**.
+
 **Sources:**
 
 - OpenTelemetry .NET — <https://opentelemetry.io/docs/languages/dotnet/>
+- OpenTelemetry Collector (CNCF graduated project) — <https://opentelemetry.io/docs/collector/>
+- OpenTelemetry semantic conventions — <https://opentelemetry.io/docs/specs/semconv/>
+- OTel SDK environment variables (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL`) — <https://opentelemetry.io/docs/specs/otel/protocol/exporter/>
 - `open-telemetry/opentelemetry-dotnet` releases (1.15.x) — <https://github.com/open-telemetry/opentelemetry-dotnet/releases/latest>
 - `OpenTelemetry.Instrumentation.AspNetCore` (Filter/Enrich, query redaction) — <https://github.com/open-telemetry/opentelemetry-dotnet-contrib/blob/main/src/OpenTelemetry.Instrumentation.AspNetCore/README.md>
-- OTel SDK environment variables (`OTEL_EXPORTER_OTLP_ENDPOINT`) — <https://opentelemetry.io/docs/specs/otel/protocol/exporter/>
 - Aspire ServiceDefaults (OTLP activation, probe filtering) — <https://aspire.dev/get-started/csharp-service-defaults/>
 
 ---
@@ -358,11 +404,19 @@ builder.Services.AddHttpClient<CatalogClient>()
 - ❌ Stack retries at multiple layers (client + gateway + mesh). Pick one. And don't stack two resilience handlers on the same `HttpClient`.
 - ❌ Circuit-break on **every** exception type. Exclude `OperationCanceledException` from request cancellation.
 
+**Cross-references:**
+
+- The **transactional outbox pattern itself** (table shape, `IDbContextFactory<T>` usage, transaction scope, dispatcher contract) is **owned by `ch03`** (data tier). This chapter only owns the **dispatcher topology** — where the relay runs (hosted service / sidecar / worker pool) and how it integrates with the broker.
+- The HTTP request-pipeline side of resilience — rate-limiting middleware, request-size limits, Kestrel surface defaults — is **owned by `ch02`**. Outbound `HttpClient` resilience is the side this section owns.
+- `ProblemDetails` shape returned to callers when the pipeline gives up (after retry/circuit-break) is **owned by `ch02`**.
+
 **Sources:**
 
 - HTTP resilience (`AddStandardResilienceHandler`, defaults, `DisableForUnsafeHttpMethods`, `RemoveAllResilienceHandlers`) — <https://learn.microsoft.com/dotnet/core/resilience/http-resilience>
 - Polly v8 — <https://www.pollydocs.org/>
-- Dapr state-management outbox — <https://docs.dapr.io/developing-applications/building-blocks/state-management/howto-outbox/>
+- Dapr state-management outbox (CNCF incubating) — <https://docs.dapr.io/developing-applications/building-blocks/state-management/howto-outbox/>
+- OWASP API Security Top 10 (rate-limiting, idempotency, replay) — <https://owasp.org/API-Security/editions/2023/en/0x11-t10/>
+- NIST SP 800-204 — Security Strategies for Microservices-Based Application Systems (resilience, circuit breaking) — <https://csrc.nist.gov/pubs/sp/800/204/final>
 
 ---
 
@@ -397,6 +451,13 @@ builder.Services.AddHttpClient<CatalogGrpcClient>(c => c.BaseAddress = new Uri("
 - **Pass-through resolver** (`AddPassThroughServiceEndpointProvider`) — turn the logical URI into a literal hostname and let the platform (Kubernetes `Service` / CoreDNS) resolve it. Use this on K8s when each logical service maps 1:1 to a `Service` of the same name.
 - **DNS SRV resolver** (`AddDnsSrvServiceEndpointProvider`) — query SRV records to pick up multiple endpoints per service. Use this on K8s when you expose multiple **named** ports: create a headless `Service` (`clusterIP: None`) with named ports, then resolve via `https+http://_dashboard.basket` (the `_endpoint` segment selects the named port). This is the canonical K8s pattern when one logical service has more than one port (e.g., HTTP + admin + gRPC).
 
+**Default service-discovery resolver — pick one:**
+
+- **Default on Kubernetes:** **Pass-through resolver** — every logical name maps 1:1 to a `Service` resource of the same name and CoreDNS does the work. One DI registration, zero per-service config drift.
+- **Fallback on Kubernetes:** **DNS SRV resolver** when one logical service exposes multiple named ports (HTTP + admin + gRPC) via a headless `Service`.
+- **Default in dev (AppHost):** **Configuration resolver** — AppHost injects the endpoints; you don't touch `IConfiguration` by hand.
+- **Never in prod:** Configuration resolver fed from a static ConfigMap *and* a dynamic platform — pick one source of truth.
+
 ```csharp
 // Service project — choose the resolver that matches your runtime.
 builder.Services.AddServiceDiscovery();
@@ -426,10 +487,12 @@ Worth it only for:
 
 **Sources:**
 
+- Kubernetes DNS for Services (canonical concept page) — <https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/>
+- Aspire service discovery (community docs hub) — <https://aspire.dev/fundamentals/service-discovery/>
 - Aspire service discovery (incl. K8s DNS SRV named endpoints) — <https://learn.microsoft.com/dotnet/aspire/service-discovery/overview>
 - `Microsoft.Extensions.ServiceDiscovery` — <https://learn.microsoft.com/dotnet/core/extensions/service-discovery>
-- aspire.dev service discovery — <https://aspire.dev/fundamentals/service-discovery/>
-- Kubernetes DNS for Services — <https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/>
+- Istio (CNCF graduated) — service-mesh data plane / mTLS — <https://istio.io/latest/docs/concepts/security/>
+- Linkerd (CNCF graduated) — service-mesh mTLS by default — <https://linkerd.io/2/features/automatic-mtls/>
 
 ---
 
@@ -460,6 +523,9 @@ var credential = new DefaultAzureCredential();
 
 - Azure Workload Identity on AKS — <https://learn.microsoft.com/azure/aks/workload-identity-overview>
 - `DefaultAzureCredential` — <https://learn.microsoft.com/dotnet/api/azure.identity.defaultazurecredential>
+- NIST SP 800-204 — Security Strategies for Microservices-Based Application Systems (workload identity, no long-lived secrets) — <https://csrc.nist.gov/pubs/sp/800/204/final>
+- OWASP Secrets Management Cheat Sheet (rotation, no secrets in args/env-as-source-of-truth) — <https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html>
+- Kubernetes ServiceAccount token volume projection — <https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#serviceaccount-token-volume-projection>
 
 ---
 
@@ -500,9 +566,12 @@ builder.Services
 
 **Symptom of getting this wrong:** intermittent `CryptographicException: The key {guid} was not found in the key ring` after deploy. Usually in antiforgery / auth cookie / OIDC state.
 
-**Sources:**
+**Cross-references:**
 
-- Data Protection configuration — <https://learn.microsoft.com/aspnet/core/security/data-protection/configuration/overview>
+- The cookie / antiforgery / OIDC-state surfaces that **consume** this key ring on the request pipeline are **owned by `ch02`** (antiforgery middleware, JWT bearer + Entra). This section only owns where the keys live.
+- The Blazor render-mode boundaries (`PersistentAuthenticationStateProvider`, `[PersistentState]`) that rely on a stable Data Protection key across replicas are **owned by `ch07`** (client). Multi-replica Blazor without this key ring fails on every rollout.
+
+**Sources:**
 - Key storage providers (Azure Blob + Key Vault) — <https://learn.microsoft.com/aspnet/core/security/data-protection/implementation/key-storage-providers>
 - `SetApplicationName` semantics — <https://learn.microsoft.com/aspnet/core/security/data-protection/configuration/overview#setapplicationname>
 
@@ -560,6 +629,11 @@ app.MapHealthChecks("/health/startup", new HealthCheckOptions { Predicate = r =>
 
 - **Background health check publishers** (`IHealthCheckPublisher` + `HealthCheckPublisherOptions.Period`) — run dependency checks once per N seconds in the background; probes read the cached snapshot.
 - **Library-specific throttling** (e.g., AspNetCore.HealthChecks.* `HealthCheckRegistration` with a custom `IHealthCheck` that throttles internally).
+
+**Cross-references:**
+
+- The `IHealthCheck` and `IHostApplicationLifetime` contracts these endpoints rely on are **owned by `ch01`** (foundations: hosting / lifetime, logging primitives). This section only maps them to the K8s probe surface.
+- The HTTP request-pipeline OTel filter that excludes `/health/*` from server traces is **owned by `ch02`** (HTTP wiring); see §5 of this chapter for the local exporter side.
 
 **Sources:**
 
@@ -624,7 +698,9 @@ public sealed class OutboxRelay(IBus bus, ILogger<OutboxRelay> log) : Background
 
 - GitHub Actions OIDC → Azure — <https://learn.microsoft.com/azure/developer/github/connect-from-azure-openid-connect>
 - `dotnet nuget audit` — <https://learn.microsoft.com/nuget/concepts/auditing-packages>
-- Sigstore — <https://docs.sigstore.dev/>
+- Sigstore (CNCF) — <https://docs.sigstore.dev/>
+- OWASP CI/CD Security Top 10 (poisoned pipeline execution, dependency exposure, build provenance) — <https://owasp.org/www-project-top-10-ci-cd-security-risks/>
+- in-toto / SLSA build provenance (CNCF) — <https://slsa.dev/spec/v1.0/>
 
 ---
 
@@ -651,6 +727,8 @@ public sealed class OutboxRelay(IBus bus, ILogger<OutboxRelay> log) : Background
 
 - ASP.NET Core forwarded headers — <https://learn.microsoft.com/aspnet/core/host-and-deploy/proxy-load-balancer>
 - Kubernetes NetworkPolicy — <https://kubernetes.io/docs/concepts/services-networking/network-policies/>
+- NIST SP 800-204 — Security Strategies for Microservices-Based Application Systems (zero-trust, mTLS, ingress) — <https://csrc.nist.gov/pubs/sp/800/204/final>
+- OWASP Application Security Verification Standard — communications (TLS, HSTS, forwarded headers) — <https://owasp.org/www-project-application-security-verification-standard/>
 
 ---
 
@@ -726,38 +804,55 @@ If your service diverges from this without a written reason in the repo, it's te
 
 ### Authoritative
 
-- **.NET Aspire docs** — <https://learn.microsoft.com/dotnet/aspire/> and <https://aspire.dev/>
+- **Aspire community docs hub** — <https://aspire.dev/>
+- **.NET Aspire docs (Microsoft Learn)** — <https://learn.microsoft.com/dotnet/aspire/>
 - **Aspire 9 → 13 What's New** — <https://learn.microsoft.com/dotnet/aspire/whats-new/dotnet-aspire-9>
 - **Aspire integrations (hosting vs client)** — <https://aspire.dev/integrations/overview/> and <https://learn.microsoft.com/dotnet/aspire/fundamentals/integrations-overview>
 - **Aspire ServiceDefaults** — <https://aspire.dev/get-started/csharp-service-defaults/>
+- **Aspire testing (`DistributedApplicationTestingBuilder`)** — <https://aspire.dev/fundamentals/testing/>
 - **Aspire service discovery (incl. K8s DNS SRV)** — <https://learn.microsoft.com/dotnet/aspire/service-discovery/overview> and <https://aspire.dev/fundamentals/service-discovery/>
 - **`Microsoft.Extensions.ServiceDiscovery`** — <https://learn.microsoft.com/dotnet/core/extensions/service-discovery>
-- **dotnet/aspire** repo — <https://github.com/dotnet/aspire>
-- **.NET container images** — <https://github.com/dotnet/dotnet-docker> and <https://learn.microsoft.com/dotnet/core/docker/container-images>
+- **`dotnet/aspire` source repository** — <https://github.com/dotnet/aspire>
+- **`dotnet/dotnet-docker` (image catalog, samples, chiseled docs)** — <https://github.com/dotnet/dotnet-docker>
 - **Chiseled Ubuntu containers for .NET** — <https://github.com/dotnet/dotnet-docker/blob/main/documentation/ubuntu-chiseled.md>
+- **OCI Image Format Specification** — <https://github.com/opencontainers/image-spec>
 - **.NET SDK container build (`PublishContainer`)** — <https://learn.microsoft.com/dotnet/core/docker/publish-as-container>
 - **.NET on AKS guidance** — <https://learn.microsoft.com/azure/aks/> and <https://learn.microsoft.com/dotnet/architecture/cloud-native/>
 - **Kubernetes probes (concept)** — <https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/>
 - **Kubernetes Pod QoS** — <https://kubernetes.io/docs/concepts/workloads/pods/pod-qos/>
 - **Kubernetes resource management (CPU shares & CFS quota)** — <https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/>
 - **Kubernetes lifecycle hooks** — <https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/>
+- **Kubernetes DNS for Services** — <https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/>
+- **Kubernetes NetworkPolicy** — <https://kubernetes.io/docs/concepts/services-networking/network-policies/>
+- **Kubernetes ServiceAccount token volume projection** — <https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#serviceaccount-token-volume-projection>
+- **CSI Secrets Store Driver (upstream)** — <https://secrets-store-csi-driver.sigs.k8s.io/>
 - **OpenTelemetry .NET SDK** — <https://opentelemetry.io/docs/languages/dotnet/>
+- **OpenTelemetry Collector (CNCF graduated)** — <https://opentelemetry.io/docs/collector/>
 - **`opentelemetry-dotnet` releases (1.15.x)** — <https://github.com/open-telemetry/opentelemetry-dotnet/releases/latest>
 - **`OpenTelemetry.Instrumentation.AspNetCore`** — <https://github.com/open-telemetry/opentelemetry-dotnet-contrib/blob/main/src/OpenTelemetry.Instrumentation.AspNetCore/README.md>
 - **OTel exporter env vars** — <https://opentelemetry.io/docs/specs/otel/protocol/exporter/>
 - **OTel semantic conventions** — <https://opentelemetry.io/docs/specs/semconv/>
 - **HTTP resilience (`AddStandardResilienceHandler`)** — <https://learn.microsoft.com/dotnet/core/resilience/http-resilience> and <https://www.pollydocs.org/>
-- **Dapr state-management outbox** — <https://docs.dapr.io/developing-applications/building-blocks/state-management/howto-outbox/>
+- **Dapr state-management outbox (CNCF incubating)** — <https://docs.dapr.io/developing-applications/building-blocks/state-management/howto-outbox/>
+- **Istio (CNCF graduated)** — <https://istio.io/latest/docs/concepts/security/>
+- **Linkerd (CNCF graduated)** — <https://linkerd.io/2/features/automatic-mtls/>
+- **KEDA (CNCF graduated)** — <https://keda.sh/docs/>
+- **Sigstore cosign / Notation** — <https://docs.sigstore.dev/> / <https://notaryproject.dev/>
+- **SLSA build provenance** — <https://slsa.dev/spec/v1.0/>
+- **NIST SP 800-204 — Security Strategies for Microservices-Based Application Systems** — <https://csrc.nist.gov/pubs/sp/800/204/final>
+- **OWASP API Security Top 10 (2023)** — <https://owasp.org/API-Security/editions/2023/en/0x11-t10/>
+- **OWASP Secrets Management Cheat Sheet** — <https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html>
+- **OWASP Docker Security Cheat Sheet** — <https://cheatsheetseries.owasp.org/cheatsheets/Docker_Security_Cheat_Sheet.html>
+- **OWASP CI/CD Security Top 10** — <https://owasp.org/www-project-top-10-ci-cd-security-risks/>
+- **OWASP Application Security Verification Standard** — <https://owasp.org/www-project-application-security-verification-standard/>
 - **Health checks API (`HealthCheckOptions`)** — <https://learn.microsoft.com/dotnet/api/microsoft.aspnetcore.diagnostics.healthchecks.healthcheckoptions>
 - **`IHealthCheckPublisher`** — <https://learn.microsoft.com/dotnet/api/microsoft.extensions.diagnostics.healthchecks.ihealthcheckpublisher>
 - **Hosted services / `HostOptions.ShutdownTimeout`** — <https://learn.microsoft.com/aspnet/core/fundamentals/host/hosted-services>
 - **Data Protection in K8s (config + Azure Blob/Key Vault providers)** — <https://learn.microsoft.com/aspnet/core/security/data-protection/configuration/overview> and <https://learn.microsoft.com/aspnet/core/security/data-protection/implementation/key-storage-providers>
 - **Azure Workload Identity** — <https://learn.microsoft.com/azure/aks/workload-identity-overview>
-- **Secrets Store CSI Driver + Key Vault** — <https://learn.microsoft.com/azure/aks/csi-secrets-store-driver>
-- **KEDA** — <https://keda.sh/docs/>
+- **Secrets Store CSI Driver + Key Vault (AKS)** — <https://learn.microsoft.com/azure/aks/csi-secrets-store-driver>
 - **GitHub Actions OIDC → Azure** — <https://learn.microsoft.com/azure/developer/github/connect-from-azure-openid-connect>
 - **Microsoft.Sbom.Targets** — <https://github.com/microsoft/sbom-tool>
-- **Sigstore cosign / Notation** — <https://docs.sigstore.dev/> / <https://notaryproject.dev/>
 - **`dotnet nuget audit`** — <https://learn.microsoft.com/nuget/concepts/auditing-packages>
 
 ### Community (talks + blogs)
