@@ -1,29 +1,31 @@
 # Cloud-Native .NET on Kubernetes — Opinionated Best Practices
 
-*Audience: staff/senior engineers shipping .NET 8/9 services to AKS (or any CNCF-conformant cluster). Companion to [`aks-shared-infra.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/aks-shared-infra.md). Baseline: **.NET Aspire 9.x GA** and **.NET 8/9** as currently shipping.*
+*Audience: staff/senior engineers shipping .NET 8/9/10 services to AKS (or any CNCF-conformant cluster). Companion to [`aks-shared-infra.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/aks-shared-infra.md). Baseline: **Aspire 9.x GA** for **.NET 8/9** services and **Aspire 13 GA** for **.NET 10** services.*
 
-> **One-line position.** Use **Aspire 9.x for the inner loop + ServiceDefaults**, the **.NET SDK container build** for images, **OpenTelemetry + standard resilience pipelines** everywhere, and **Workload Identity + CSI Key Vault** for secrets. Everything else is either the cluster's job or the platform team's job — not your service's.
+> **One-line position.** Use **Aspire 9.x (net8/9) or Aspire 13 (net10) for the inner loop + ServiceDefaults**, the **.NET SDK container build** for images, **OpenTelemetry + standard resilience pipelines** everywhere, and **Workload Identity + CSI Key Vault** for secrets. Everything else is either the cluster's job or the platform team's job — not your service's.
 
 ---
 
 ## 1. .NET Aspire — what it is, what it isn't
 
-**What it is (Aspire 9.x GA, current):**
+**What it is (Aspire 9.x GA for net8/9; Aspire 13 GA for net10):**
 
 - An **inner-loop orchestration + opinionated-defaults** toolkit. The **AppHost** project is a C# program that models your distributed app (services, Postgres, Redis, RabbitMQ, Azure Storage, …) so `dotnet run` on the AppHost (or `aspire run` with the Aspire CLI) spins up the whole graph with a dashboard, OTel wired up, and connection strings injected.
-- **ServiceDefaults** is a shared project you `AddServiceDefaults()` into every service: OpenTelemetry (traces/metrics/logs via OTLP), service discovery, standard resilience on `HttpClient`, and a small set of health checks (`/health` + `/alive`) **mapped only in the Development environment** by `MapDefaultEndpoints()`.
+- **ServiceDefaults** is a shared project you `AddServiceDefaults()` into every service: OpenTelemetry (traces/metrics/logs via OTLP), service discovery, standard resilience on `HttpClient`, and a small set of health checks (`/health` + `/alive`) **mapped only in the Development environment** by `MapDefaultEndpoints()`. Note: when you add any **client integration** to a service in an Aspire solution, it pulls in the `ServiceDefaults` reference and calls `AddServiceDefaults()` for you — you don't have to remember to call it yourself.
 - **Two distinct integration families** — keep them straight:
   - **Hosting integrations** — `Aspire.Hosting.*` packages (e.g., `Aspire.Hosting.PostgreSQL`, `Aspire.Hosting.Redis`, `Aspire.Hosting.Azure.ServiceBus`). **AppHost-only.** They model resources, run containers locally, and emit connection info. **Never reference these from a service project.**
-  - **Client integrations** — `Aspire.<Vendor>.<Tech>` packages (e.g., `Aspire.Npgsql`, `Aspire.StackExchange.Redis`, `Aspire.Azure.Messaging.ServiceBus`). **Service-project packages.** They register typed clients in DI, wire configuration, register health checks, and add OTel instrumentation.
+  - **Client integrations** — `Aspire.<Vendor>.<Tech>` packages (e.g., `Aspire.Npgsql`, `Aspire.StackExchange.Redis`, `Aspire.Azure.Messaging.ServiceBus`). **Service-project packages.** They register typed clients in DI, wire configuration, register health checks, and add OTel instrumentation. There is **no `.Client` suffix** on the package name.
 - **Dashboard** (also usable standalone via OTLP) is the best local trace/log/metric UI in the ecosystem.
 
-**Future / forward-looking (label clearly in your repo if you adopt early):**
+**Version pin guidance:**
 
-- A **rebranded "Aspire" with polyglot app models** (Python/JS resources in the same AppHost) and a fully GA AOT-compiled CLI is on the roadmap. Until that ships in your tenant, treat it as *future Aspire next* and don't pin docs/examples to it.
+- net8 / net9 services → **Aspire 9.x** (still GA-shipping for those TFMs).
+- net10 services → **Aspire 13** (versions jumped 9.x → 13.0, skipping 10–12 to align with the .NET 10 wave). Aspire 13 requires the **.NET 10 SDK**, introduces **polyglot AppHost** support (Python, JS resources alongside .NET), and a new `aspire do` build/publish/deploy pipeline. The AppHost csproj is now `<Project Sdk="Aspire.AppHost.Sdk/13.0.0">` and `Aspire.Hosting.AppHost` is **no longer an explicit `PackageReference`** — the SDK encapsulates it.
+- The rebrand from **.NET Aspire → Aspire** and the new docs hub at **<https://aspire.dev>** reflect the multi-language direction.
 
 **What it is *not*:**
 
-- **Not a deployment runtime.** AppHost does not run in production. `aspire publish` / `azd` / Bicep / Helm generate manifests; the cluster runs the service, not AppHost.
+- **Not a deployment runtime.** AppHost does not run in production. `aspire publish` / `azd` / Bicep / Helm generate manifests; the cluster runs the service, not AppHost. On Aspire 13, **`aspire do`** is the forward direction for build/publish/deploy pipelines (parallel execution, dependency tracking).
 - **Not a PaaS.** It doesn't replace AKS, ACA, or App Service.
 - **Not a service mesh.** No mTLS, no L7 policy, no traffic shifting.
 - **Not required.** A well-factored `Program.cs` with the same OTel/health/resilience setup is equivalent — Aspire just removes the boilerplate.
@@ -31,7 +33,7 @@
 **Do / Don't:**
 
 - ✅ Adopt Aspire when you have ≥2 services, ≥1 dependency (Postgres/Redis/bus), and devs currently `docker-compose up` by hand.
-- ✅ Put `ServiceDefaults` in every new service, even solo ones — you get OTel + service discovery + resilience for free.
+- ✅ Put `ServiceDefaults` in every new service, even solo ones — you get OTel + service discovery + resilience for free. (Adding any client integration does this for you.)
 - ✅ Use Aspire **client** integrations over hand-rolled wiring; they set the OTel `ActivitySource`/meter names correctly and register the right health checks.
 - ❌ Don't ship `Aspire.Hosting.*` to prod. Hosting packages belong to the AppHost project, which is a dev-time tool.
 - ❌ Don't assume `AddServiceDefaults()` gives you Kubernetes probes — it doesn't (see §10).
@@ -40,9 +42,10 @@
 **Sources:**
 
 - Aspire overview — <https://aspire.dev/get-started/aspire-overview/>
-- Integrations overview (hosting vs client) — <https://aspire.dev/integrations/overview/>
+- Integrations overview (hosting vs client) — <https://aspire.dev/integrations/overview/> and <https://learn.microsoft.com/dotnet/aspire/fundamentals/integrations-overview>
 - ServiceDefaults — <https://aspire.dev/get-started/csharp-service-defaults/>
 - Microsoft Learn .NET Aspire — <https://learn.microsoft.com/dotnet/aspire/>
+- Aspire 9 What's New (covers 9 → 13 evolution) — <https://learn.microsoft.com/dotnet/aspire/whats-new/dotnet-aspire-9>
 
 ---
 
@@ -91,6 +94,8 @@ What you get by default:
 - `dotnet publish /t:PublishContainer` — <https://learn.microsoft.com/dotnet/core/docker/publish-as-container>
 - .NET container images — <https://learn.microsoft.com/dotnet/core/docker/container-images>
 
+> **Chiseled in .NET 10 — extensible slices.** Featured tags now include both `8.0-noble-chiseled` and `10.0-noble-chiseled` for `aspnet`, `runtime`, and `runtime-deps` repos under `mcr.microsoft.com/dotnet/*`. There is still **no chiseled SDK image** (build with full Ubuntu SDK, run on chiseled). **New in .NET 10:** the chisel manifest is shipped, so you can install additional package slices (e.g., `libicu74_libs`, `tzdata-legacy_zoneinfo`) via `chisel`/`chisel-wrapper` from `canonical/chisel-releases` — this is your escape hatch when you need ICU/tzdata/native deps without leaving chiseled. **.NET 8/9 chiseled images remain extension-impossible** — you must switch to `noble-chiseled-extra` or full `noble`.
+
 ---
 
 ## 3. Kubernetes / AKS — probes, limits, GC, shutdown
@@ -105,7 +110,7 @@ readinessProbe: { httpGet: { path: /health/ready,    port: 8080 }, periodSeconds
 
 - **Startup** gates the other two — essential for slow-starting JIT apps and DB migrations.
 - **Liveness** = "is the process wedged?" — checks nothing external. Restart-only.
-- **Readiness** = "can I serve traffic right now?" — checks DB/Redis/bus. Removes from Service endpoints, does *not* restart.
+- **Readiness** = "can I serve traffic right now?" — checks DB/Redis/bus. Removes from EndpointSlice (no traffic), does *not* restart. Note: Pod termination already flips endpoint `ready=false` on delete, so a readiness probe is **not strictly required** for graceful drain — but it is required to gate traffic during slow startup or transient dep outages.
 
 **Rule:** a failing downstream dependency must **never** trip liveness. Otherwise Postgres hiccups cascade into pod restart storms.
 
@@ -196,6 +201,7 @@ builder.Services.Configure<HostOptions>(o =>
 
 - Implement `IHostApplicationLifetime.ApplicationStopping` in workers: stop pulling from the queue, drain in-flight, then return.
 - ASP.NET Core drains HTTP automatically; the only reason requests get killed is `ShutdownTimeout` < actual drain time.
+- Align `terminationGracePeriodSeconds` ≥ `HostOptions.ShutdownTimeout` + readiness-probe drain window (typical: 60s pod / 30s host shutdown / 10–15s drain). If they invert, the kubelet SIGKILLs you mid-drain.
 - If you must use `exec` for `preStop`, you cannot use chiseled images — they ship without a shell or `sleep`. Either move to an HTTP `preStop`, ship `noble`/`noble-chiseled-extra` (extra still has no shell), or accept the size penalty of `noble`.
 
 ### HPA / KEDA / PDB
@@ -210,8 +216,9 @@ builder.Services.Configure<HostOptions>(o =>
 
 - Kubernetes Pod QoS — <https://kubernetes.io/docs/concepts/workloads/pods/pod-qos/>
 - Manage resources for containers (CPU shares & CFS quota) — <https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/>
-- Probes — <https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/>
+- Probes (canonical concept page) — <https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/>
 - Container lifecycle hooks — <https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/>
+- Hosted services / `HostOptions.ShutdownTimeout` — <https://learn.microsoft.com/aspnet/core/fundamentals/host/hosted-services>
 - Chiseled image constraints — <https://github.com/dotnet/dotnet-docker/blob/main/documentation/ubuntu-chiseled.md>
 
 ---
@@ -283,10 +290,12 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
 ```
 
 - **Exporter: OTLP only.** No vendor SDKs in code. Rewire the collector, not the app.
+- **Pin core packages to `OpenTelemetry` 1.15.x** (Traces, Metrics, **and** Logs are all stable). The OTLP exporter is `OpenTelemetry.Exporter.OpenTelemetryProtocol`. Instrumentation packages (`OpenTelemetry.Instrumentation.AspNetCore`, `…HttpClient`, `…Runtime`) live in **`opentelemetry-dotnet-contrib`**, not the core repo — they version independently. Note: in `OpenTelemetry` 1.15.3, OTLP disk retry now requires `OTEL_DOTNET_EXPERIMENTAL_OTLP_DISK_RETRY_DIRECTORY_PATH` to be set explicitly when `OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY=disk` (no temp-dir fallback).
 - **Dev**: OTLP → Aspire dashboard (`OTEL_EXPORTER_OTLP_ENDPOINT` auto-injected by AppHost).
 - **Prod**: OTLP → OpenTelemetry Collector → Grafana Tempo/Loki/Mimir **or** Azure Monitor OTLP. Don't put vendor SDKs on the hot path.
 - **Filter probes** out of HTTP server traces — otherwise every 5s readiness check is a span and a metric data point. ServiceDefaults already excludes its `/health` and `/alive` paths; if you map your own probe paths (see §10), filter those too.
-- **Semantic conventions**: use stable names (`http.request.method`, `db.system.name`, `messaging.system`). Don't invent `my.http.verb`.
+- **Query strings are redacted by default** in `OpenTelemetry.Instrumentation.AspNetCore` (PII-safe). If you genuinely need them on `url.path`/`url.full`, opt in with `OTEL_DOTNET_EXPERIMENTAL_ASPNETCORE_DISABLE_URL_QUERY_REDACTION=true` — and then make sure your sampler/exporter pipeline doesn't ship the raw query to a vendor.
+- **Semantic conventions**: use stable names (`http.request.method`, `http.response.status_code`, `http.route`, `db.system.name`, `messaging.system`). Don't invent `my.http.verb`. AspNetCore instrumentation tracks http-spans semconv ≥ 1.23.
 - **ActivitySource naming**: `{Org}.{Product}.{Component}` — e.g., `EntraAuth.Catalog.Domain`. Stable. Filterable in sampling rules.
 - **Log correlation**: logs auto-include `TraceId`/`SpanId` when the OTel logging provider is registered. Turn off Serilog's parallel trace injection if both are wired — pick one.
 
@@ -294,7 +303,9 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
 
 **Sources:**
 
-- OpenTelemetry .NET — <https://opentelemetry.io/docs/languages/net/>
+- OpenTelemetry .NET — <https://opentelemetry.io/docs/languages/dotnet/>
+- `open-telemetry/opentelemetry-dotnet` releases (1.15.x) — <https://github.com/open-telemetry/opentelemetry-dotnet/releases/latest>
+- `OpenTelemetry.Instrumentation.AspNetCore` (Filter/Enrich, query redaction) — <https://github.com/open-telemetry/opentelemetry-dotnet-contrib/blob/main/src/OpenTelemetry.Instrumentation.AspNetCore/README.md>
 - OTel SDK environment variables (`OTEL_EXPORTER_OTLP_ENDPOINT`) — <https://opentelemetry.io/docs/specs/otel/protocol/exporter/>
 - Aspire ServiceDefaults (OTLP activation, probe filtering) — <https://aspire.dev/get-started/csharp-service-defaults/>
 
@@ -302,7 +313,17 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
 
 ## 6. Resilience — Polly v8 standard pipelines, not hand-rolled retries
 
-`Microsoft.Extensions.Resilience` (Polly v8 under the hood) ships a standard HTTP pipeline: total-timeout → retry (with jitter) → circuit breaker → attempt-timeout.
+`Microsoft.Extensions.Http.Resilience` (Polly v8 under the hood, sitting on `Microsoft.Extensions.Resilience`) ships a standard HTTP pipeline with five strategies in fixed order, outermost → innermost:
+
+| # | Strategy | Default |
+|---|---|---|
+| 1 | Rate limiter | Queue 0, Permit 1000 (per pipeline) |
+| 2 | Total request timeout | 30s |
+| 3 | Retry | Max 3, exponential, jitter on, base delay 2s |
+| 4 | Circuit breaker | Failure ratio 10%, min throughput 100, sampling 30s, break 5s |
+| 5 | Attempt timeout | 10s |
+
+Triggers (handled as transient): HTTP `5xx`, `408`, `429`, plus `HttpRequestException` and `TimeoutRejectedException`.
 
 ```csharp
 builder.Services.AddHttpClient<CatalogClient>()
@@ -312,26 +333,36 @@ builder.Services.AddHttpClient<CatalogClient>()
         o.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
         o.AttemptTimeout.Timeout = TimeSpan.FromSeconds(2);
         o.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(10);
+
+        // Retries fire for ALL HTTP methods by default — including POST/PUT/PATCH/DELETE.
+        // Disable for non-idempotent verbs to avoid duplicate side effects.
+        o.Retry.DisableForUnsafeHttpMethods();
     });
 ```
+
+> **POST-retry hazard.** `AddStandardResilienceHandler` retries every method by default. If your POSTs are not idempotent (no idempotency key, no dedup store), call **`DisableForUnsafeHttpMethods()`** on the retry options — or better, design every mutating endpoint to take an `Idempotency-Key` header and dedup server-side.
+
+> **Don't stack handlers.** `AddStandardResilienceHandler` is *the* pipeline; do **not** chain a second `AddResilienceHandler` or a hand-rolled `Polly` handler on the same `HttpClient` — you'll get nested retries and circuit breakers that interact in surprising ways. To customize, call **`RemoveAllResilienceHandlers()`** first, then re-add a single configured pipeline.
 
 **Do:**
 
 - ✅ `AddStandardResilienceHandler` on every outbound `HttpClient`. Make it the default.
+- ✅ Call `DisableForUnsafeHttpMethods()` on the retry strategy unless you have idempotency keys end-to-end.
 - ✅ **Idempotency keys** on POSTs that mutate money/state. `Idempotency-Key` header, dedup store with TTL in Redis.
-- ✅ **Outbox pattern** for "save row + publish event" — never two-phase commit. Transactional outbox table, a relay pushes to the bus.
+- ✅ **Outbox pattern** for "save row + publish event" — never two-phase commit. Transactional outbox table, a relay pushes to the bus. There is **no first-party Aspire outbox integration**; pick one of: **Dapr** state-management outbox (transactional state store + `outboxPublishPubsub`/`outboxPublishTopic` metadata), or a library outbox in **MassTransit** / **NServiceBus** / **Wolverine**. Aspire integrates with these only at the broker level (e.g., `Aspire.Hosting.RabbitMQ`, `Aspire.Azure.Messaging.ServiceBus`).
 - ✅ **Chaos**: add `AddChaosLatency` / `AddChaosFault` strategies behind a feature flag in non-prod to test resilience paths.
 
 **Don't:**
 
 - ❌ Retry on non-idempotent verbs without an idempotency key. You'll double-charge customers.
-- ❌ Stack retries at multiple layers (client + gateway + mesh). Pick one.
+- ❌ Stack retries at multiple layers (client + gateway + mesh). Pick one. And don't stack two resilience handlers on the same `HttpClient`.
 - ❌ Circuit-break on **every** exception type. Exclude `OperationCanceledException` from request cancellation.
 
 **Sources:**
 
-- `Microsoft.Extensions.Resilience` — <https://learn.microsoft.com/dotnet/core/resilience/http-resilience>
+- HTTP resilience (`AddStandardResilienceHandler`, defaults, `DisableForUnsafeHttpMethods`, `RemoveAllResilienceHandlers`) — <https://learn.microsoft.com/dotnet/core/resilience/http-resilience>
 - Polly v8 — <https://www.pollydocs.org/>
+- Dapr state-management outbox — <https://docs.dapr.io/developing-applications/building-blocks/state-management/howto-outbox/>
 
 ---
 
@@ -362,18 +393,19 @@ builder.Services.AddHttpClient<CatalogGrpcClient>(c => c.BaseAddress = new Uri("
 
 **Resolvers — pick the right one for the platform:**
 
-- **Configuration resolver** (default in dev) — reads `services:<name>:<endpoint>:<index>` from `IConfiguration`. AppHost populates this; in prod, ConfigMap/env vars can populate it for static topologies.
-- **Pass-through resolver** — turn the logical URI into a literal hostname and let the platform (Kubernetes `Service` / CoreDNS) resolve it. Use this on K8s when each logical service maps 1:1 to a `Service` of the same name.
-- **DNS SRV resolver** — query SRV records (e.g., headless `Service` + `_endpoint._tcp.svc.cluster.local`) to pick up multiple endpoints per service. Use this when you need named endpoints or multi-port services on K8s.
+- **Configuration resolver** (default in dev) — reads `Services:<name>:<scheme>:<index>` from `IConfiguration`. AppHost populates this; in prod, ConfigMap/env vars can populate it for static topologies. Multi-scheme fallback uses the `+` separator (e.g., `https+http://basket`); allowed schemes are filtered via `ServiceDiscoveryOptions.AllowedSchemes`.
+- **Pass-through resolver** (`AddPassThroughServiceEndpointProvider`) — turn the logical URI into a literal hostname and let the platform (Kubernetes `Service` / CoreDNS) resolve it. Use this on K8s when each logical service maps 1:1 to a `Service` of the same name.
+- **DNS SRV resolver** (`AddDnsSrvServiceEndpointProvider`) — query SRV records to pick up multiple endpoints per service. Use this on K8s when you expose multiple **named** ports: create a headless `Service` (`clusterIP: None`) with named ports, then resolve via `https+http://_dashboard.basket` (the `_endpoint` segment selects the named port). This is the canonical K8s pattern when one logical service has more than one port (e.g., HTTP + admin + gRPC).
 
 ```csharp
 // Service project — choose the resolver that matches your runtime.
-builder.Services.AddServiceDiscovery(o =>
-{
-    // o.UseConfigurationResolver();  // default
-    // o.UsePassThroughResolver();    // K8s: trust DNS / Service VIPs
-    // o.UseDnsSrvResolver();         // K8s headless Services with named endpoints
-});
+builder.Services.AddServiceDiscovery();
+// or, for K8s headless Services with named ports:
+// builder.Services.AddServiceDiscoveryCore();
+// builder.Services.AddDnsSrvServiceEndpointProvider();
+
+// Apply to every HttpClient by default:
+builder.Services.ConfigureHttpClientDefaults(http => http.AddServiceDiscovery());
 ```
 
 ### Transport
@@ -394,8 +426,9 @@ Worth it only for:
 
 **Sources:**
 
-- Aspire service discovery — <https://aspire.dev/fundamentals/service-discovery/>
+- Aspire service discovery (incl. K8s DNS SRV named endpoints) — <https://learn.microsoft.com/dotnet/aspire/service-discovery/overview>
 - `Microsoft.Extensions.ServiceDiscovery` — <https://learn.microsoft.com/dotnet/core/extensions/service-discovery>
+- aspire.dev service discovery — <https://aspire.dev/fundamentals/service-discovery/>
 - Kubernetes DNS for Services — <https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/>
 
 ---
@@ -437,19 +470,31 @@ ASP.NET Core Data Protection encrypts antiforgery tokens, cookies, OAuth state, 
 **Correct setup for K8s:**
 
 ```csharp
-var appName = $"catalog-api.{builder.Environment.EnvironmentName.ToLowerInvariant()}";
+var appName  = $"catalog-api.{builder.Environment.EnvironmentName.ToLowerInvariant()}";
+var blobUri  = new Uri("https://contosokeys.blob.core.windows.net/data-protection/keys.xml");
+// Versionless Key Vault key URI — required so KV-side rotation works without a code change.
+var keyId    = new Uri("https://contoso.vault.azure.net/keys/data-protection");
+var credential = new DefaultAzureCredential();   // ManagedIdentityCredential in prod
 
 builder.Services
     .AddDataProtection()
     // Scope to the trust boundary that must share protected payloads:
     // app + environment. NEVER share a key ring across environments.
     .SetApplicationName(appName)
-    .PersistKeysToAzureBlobStorage(blobClient, "keys.xml")  // per-env container/blob
-    .ProtectKeysWithAzureKeyVault(kvKeyId, credential);     // envelope-encrypted at rest
+    .PersistKeysToAzureBlobStorage(blobUri, credential)        // per-env container/blob
+    .ProtectKeysWithAzureKeyVault(keyId, credential);          // envelope-encrypted at rest
 ```
+
+**NuGet:** `Azure.Extensions.AspNetCore.DataProtection.Blobs` + `Azure.Extensions.AspNetCore.DataProtection.Keys`.
+
+**Required RBAC** on the Workload Identity / managed identity the pod uses:
+
+- **`Storage Blob Data Contributor`** — scoped to the data-protection blob container (read/write the keys XML).
+- **`Key Vault Crypto User`** — scoped to the wrapping key in Key Vault (wrap/unwrap only; no key management).
 
 - `ApplicationName` must match across **replicas of the same app in the same environment**, or decryption fails on the next pod.
 - **Do not** share `ApplicationName` across environments (dev/stage/prod). Sharing means a token minted in dev validates in prod and vice versa — a privilege/replay risk and an operational footgun. Use a separate blob path/container and Key Vault key per environment too.
+- Use a **versionless** Key Vault key URI (`…/keys/<name>` without a `/<version>` suffix) so KV-side key rotation is picked up automatically. If you pin a version, rotation on the KV side breaks decryption of newly-wrapped keys.
 - Blob + Key Vault is the canonical pair. Alternatives: Redis (ephemeral-ish, avoid for production key material), cluster PV (works but operationally painful).
 - Rotate Key Vault keys on a schedule; Data Protection handles ring rollover automatically.
 
@@ -458,6 +503,7 @@ builder.Services
 **Sources:**
 
 - Data Protection configuration — <https://learn.microsoft.com/aspnet/core/security/data-protection/configuration/overview>
+- Key storage providers (Azure Blob + Key Vault) — <https://learn.microsoft.com/aspnet/core/security/data-protection/implementation/key-storage-providers>
 - `SetApplicationName` semantics — <https://learn.microsoft.com/aspnet/core/security/data-protection/configuration/overview#setapplicationname>
 
 ---
@@ -552,7 +598,7 @@ public sealed class OutboxRelay(IBus bus, ILogger<OutboxRelay> log) : Background
 
 **Sources:**
 
-- ASP.NET Core graceful shutdown — <https://learn.microsoft.com/aspnet/core/fundamentals/host/generic-host#shutdowntimeout>
+- Hosted services / `HostOptions.ShutdownTimeout` — <https://learn.microsoft.com/aspnet/core/fundamentals/host/hosted-services>
 - Pod termination — <https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination>
 
 ---
@@ -680,26 +726,32 @@ If your service diverges from this without a written reason in the repo, it's te
 
 ### Authoritative
 
-- **.NET Aspire 9.x docs** — <https://learn.microsoft.com/dotnet/aspire/> and <https://aspire.dev/>
-- **Aspire integrations (hosting vs client)** — <https://aspire.dev/integrations/overview/>
+- **.NET Aspire docs** — <https://learn.microsoft.com/dotnet/aspire/> and <https://aspire.dev/>
+- **Aspire 9 → 13 What's New** — <https://learn.microsoft.com/dotnet/aspire/whats-new/dotnet-aspire-9>
+- **Aspire integrations (hosting vs client)** — <https://aspire.dev/integrations/overview/> and <https://learn.microsoft.com/dotnet/aspire/fundamentals/integrations-overview>
 - **Aspire ServiceDefaults** — <https://aspire.dev/get-started/csharp-service-defaults/>
-- **Aspire service discovery** — <https://aspire.dev/fundamentals/service-discovery/> and <https://learn.microsoft.com/dotnet/core/extensions/service-discovery>
+- **Aspire service discovery (incl. K8s DNS SRV)** — <https://learn.microsoft.com/dotnet/aspire/service-discovery/overview> and <https://aspire.dev/fundamentals/service-discovery/>
+- **`Microsoft.Extensions.ServiceDiscovery`** — <https://learn.microsoft.com/dotnet/core/extensions/service-discovery>
 - **dotnet/aspire** repo — <https://github.com/dotnet/aspire>
 - **.NET container images** — <https://github.com/dotnet/dotnet-docker> and <https://learn.microsoft.com/dotnet/core/docker/container-images>
 - **Chiseled Ubuntu containers for .NET** — <https://github.com/dotnet/dotnet-docker/blob/main/documentation/ubuntu-chiseled.md>
 - **.NET SDK container build (`PublishContainer`)** — <https://learn.microsoft.com/dotnet/core/docker/publish-as-container>
 - **.NET on AKS guidance** — <https://learn.microsoft.com/azure/aks/> and <https://learn.microsoft.com/dotnet/architecture/cloud-native/>
-- **Kubernetes probes** — <https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/>
+- **Kubernetes probes (concept)** — <https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/>
 - **Kubernetes Pod QoS** — <https://kubernetes.io/docs/concepts/workloads/pods/pod-qos/>
 - **Kubernetes resource management (CPU shares & CFS quota)** — <https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/>
 - **Kubernetes lifecycle hooks** — <https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/>
-- **OpenTelemetry .NET SDK** — <https://opentelemetry.io/docs/languages/net/>
+- **OpenTelemetry .NET SDK** — <https://opentelemetry.io/docs/languages/dotnet/>
+- **`opentelemetry-dotnet` releases (1.15.x)** — <https://github.com/open-telemetry/opentelemetry-dotnet/releases/latest>
+- **`OpenTelemetry.Instrumentation.AspNetCore`** — <https://github.com/open-telemetry/opentelemetry-dotnet-contrib/blob/main/src/OpenTelemetry.Instrumentation.AspNetCore/README.md>
 - **OTel exporter env vars** — <https://opentelemetry.io/docs/specs/otel/protocol/exporter/>
 - **OTel semantic conventions** — <https://opentelemetry.io/docs/specs/semconv/>
-- **Microsoft.Extensions.Resilience / Polly v8** — <https://learn.microsoft.com/dotnet/core/resilience/> and <https://www.pollydocs.org/>
+- **HTTP resilience (`AddStandardResilienceHandler`)** — <https://learn.microsoft.com/dotnet/core/resilience/http-resilience> and <https://www.pollydocs.org/>
+- **Dapr state-management outbox** — <https://docs.dapr.io/developing-applications/building-blocks/state-management/howto-outbox/>
 - **Health checks API (`HealthCheckOptions`)** — <https://learn.microsoft.com/dotnet/api/microsoft.aspnetcore.diagnostics.healthchecks.healthcheckoptions>
 - **`IHealthCheckPublisher`** — <https://learn.microsoft.com/dotnet/api/microsoft.extensions.diagnostics.healthchecks.ihealthcheckpublisher>
-- **Data Protection in K8s** — <https://learn.microsoft.com/aspnet/core/security/data-protection/configuration/overview>
+- **Hosted services / `HostOptions.ShutdownTimeout`** — <https://learn.microsoft.com/aspnet/core/fundamentals/host/hosted-services>
+- **Data Protection in K8s (config + Azure Blob/Key Vault providers)** — <https://learn.microsoft.com/aspnet/core/security/data-protection/configuration/overview> and <https://learn.microsoft.com/aspnet/core/security/data-protection/implementation/key-storage-providers>
 - **Azure Workload Identity** — <https://learn.microsoft.com/azure/aks/workload-identity-overview>
 - **Secrets Store CSI Driver + Key Vault** — <https://learn.microsoft.com/azure/aks/csi-secrets-store-driver>
 - **KEDA** — <https://keda.sh/docs/>
