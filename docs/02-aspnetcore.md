@@ -1,6 +1,18 @@
 # ASP.NET Core 10 — Server-Side Best Practices
 
-Opinionated defaults for APIs and background services on **.NET 10 (LTS, Nov 2025)**. Terse on purpose. If something isn't here, assume the framework default is fine. Companion docs: [`validation.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/validation.md), [`best-practices.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/best-practices.md).
+Opinionated defaults for APIs and background services on **.NET 10 (LTS, Nov 2025)**.
+Terse on purpose.
+If something isn't here, assume the framework default is fine.
+
+Cross-chapter ownership (per [`coverage-map.md`](../coverage-map.md)):
+- DI lifetimes, options pattern, logging primitives, source-generated loggers — owned by [Chapter 01 — foundations](./01-foundations.md).
+- EF Core registration, `DbContext` scoping, exception translation — owned by [Chapter 03 — data](./03-data.md).
+- `WebApplicationFactory`, Testcontainers, hosted-service tests — owned by [Chapter 04 — testing](./04-testing.md).
+- OTel application metrics, meter design, NativeAOT, GC tuning — owned by [Chapter 05 — performance](./05-performance.md).
+- OTLP exporter wiring, Aspire `ServiceDefaults`, K8s probes, workload identity — owned by [Chapter 06 — cloud-native](./06-cloud-native.md).
+- Blazor auth-state serialization, render-mode-specific auth — owned by [Chapter 07 — client](./07-client.md).
+
+Canonical reference for §10 (AuthN/AuthZ) on Entra: the [**EntraAuthPatterns sample repo**](https://github.com/mghabin/entra-auth-patterns-dotnet) — runnable code, `validation.md`, `best-practices.md`.
 
 ---
 
@@ -44,6 +56,8 @@ Sources:
 - [Minimal APIs overview](https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis/overview).
 - [Choose between controllers and Minimal APIs](https://learn.microsoft.com/aspnet/core/fundamentals/apis).
 - [`TypedResults` vs `Results`](https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis/responses).
+- [OWASP API Security Top 10 — API8:2023 Security Misconfiguration](https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/) — endpoint metadata (auth, CORS, rate-limit) belongs on the route group, not scattered per endpoint.
+- DI surface inside endpoints/filters references the lifetime rules in [Chapter 01 — foundations §DI](./01-foundations.md).
 
 ---
 
@@ -95,6 +109,8 @@ Sources:
 - [FluentValidation — ASP.NET Core integration](https://docs.fluentvalidation.net/en/latest/aspnet.html) — auto-validation in `FluentValidation.AspNetCore` is deprecated; invoke validators yourself.
 - [Model binding](https://learn.microsoft.com/aspnet/core/mvc/models/model-binding) and [`[AsParameters]`](https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis/parameter-binding#parameter-binding-for-argument-lists-with-asparameters).
 - [Keyed DI services](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection#keyed-services) — `[FromKeyedServices]`.
+- [OWASP API Security Top 10 — API3:2023 Broken Object Property Level Authorization](https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/) — bind explicit DTOs, never the persistence model.
+- DataAnnotations, `IValidatableObject`, options validation primitives owned by [Chapter 01 — foundations](./01-foundations.md).
 
 ---
 
@@ -173,9 +189,13 @@ For step-up / CAE flows, use Microsoft.Identity.Web's `ReplyForbiddenWithWwwAuth
 Sources:
 - [RFC 9457 — Problem Details for HTTP APIs](https://datatracker.ietf.org/doc/html/rfc9457) (obsoletes RFC 7807; wire-format compatible).
 - [RFC 9457 §4 — defining new problem types](https://datatracker.ietf.org/doc/html/rfc9457#section-4) — `type` URI conventions and registry guidance.
+- [RFC 7807 — original Problem Details](https://datatracker.ietf.org/doc/html/rfc7807) — kept for clients that branch on the older `type` URIs during migration.
+- [RFC 6750 §3 — `WWW-Authenticate` for bearer challenges](https://datatracker.ietf.org/doc/html/rfc6750#section-3) — `error`, `error_description`, `scope` parameters preserved on 401.
 - [Handle errors — `IExceptionHandler` and `AddProblemDetails`](https://learn.microsoft.com/aspnet/core/fundamentals/error-handling).
 - [JWT bearer events](https://learn.microsoft.com/dotnet/api/microsoft.aspnetcore.authentication.jwtbearer.jwtbearerevents) — preserving `WWW-Authenticate`.
 - [Microsoft.Identity.Web claims challenges / CAE](https://learn.microsoft.com/entra/identity-platform/claims-challenge).
+- [OWASP API Security Top 10 — API7:2023 Server Side Request Forgery / API8:2023 Misconfiguration](https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/) — never leak stack traces or internal URIs in `detail`.
+- EF Core `DbUpdateConcurrencyException` → 409 ProblemDetails mapping owned by [Chapter 03 — data](./03-data.md).
 
 ---
 
@@ -351,6 +371,11 @@ Sources:
 - [Distributed tracing instrumentation walkthroughs](https://learn.microsoft.com/dotnet/core/diagnostics/distributed-tracing-instrumentation-walkthroughs) — exact source names.
 - [`LoggerMessage` source generator](https://learn.microsoft.com/dotnet/core/extensions/logger-message-generator).
 - [`System.Diagnostics.Metrics`](https://learn.microsoft.com/dotnet/core/diagnostics/metrics).
+- [OpenTelemetry .NET — getting started (community)](https://opentelemetry.io/docs/languages/net/getting-started/) — vendor-neutral wiring of `ActivitySource`/`Meter` to OTLP.
+- [OpenTelemetry Semantic Conventions for HTTP](https://opentelemetry.io/docs/specs/semconv/http/http-spans/) — span/attribute names that `AddAspNetCoreInstrumentation` and `AddHttpClientInstrumentation` emit.
+- [OpenTelemetry Specification — Trace Context (W3C)](https://www.w3.org/TR/trace-context/) — propagation contract used by the HTTP instrumentations.
+- [`opentelemetry-dotnet` GitHub](https://github.com/open-telemetry/opentelemetry-dotnet) — exporter/instrumentation issue tracker; check before pinning a preview.
+- Logging primitives owned by [Chapter 01 — foundations](./01-foundations.md); meter design + application metrics owned by [Chapter 05 — performance](./05-performance.md); OTLP exporters and `ServiceDefaults` owned by [Chapter 06 — cloud-native](./06-cloud-native.md).
 
 ---
 
@@ -385,8 +410,11 @@ Rules of thumb:
 Sources:
 - [Build resilient HTTP apps with `Microsoft.Extensions.Http.Resilience`](https://learn.microsoft.com/dotnet/core/resilience/http-resilience) — definitive for `HttpStandardResilienceOptions`, `HttpRetryStrategyOptions`, pipeline order, and `RemoveAllResilienceHandlers()`.
 - [`Microsoft.Extensions.Http.Resilience` on NuGet](https://www.nuget.org/packages/Microsoft.Extensions.Http.Resilience).
-- [Polly v8 strategies](https://www.pollydocs.org/strategies/index.html) — semantics beyond what the standard handler exposes.
+- [Polly v8 strategies (community)](https://www.pollydocs.org/strategies/index.html) — semantics beyond what the standard handler exposes.
+- [Polly v8 — pipelines and resilience strategies](https://www.pollydocs.org/pipelines/index.html) — ordering rules when you build a custom pipeline.
+- [Polly GitHub — `App-vNext/Polly`](https://github.com/App-vNext/Polly) — issues, samples, and chaos-engineering helpers (`Polly.Simmy`).
 - [Resilient apps with `Microsoft.Extensions.Resilience`](https://learn.microsoft.com/dotnet/core/resilience/).
+- [OWASP API Security Top 10 — API4:2023 Unrestricted Resource Consumption](https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/) — total + per-attempt timeouts are the primary defense against runaway retry storms.
 
 ---
 
@@ -422,6 +450,10 @@ ordersGroup.RequireRateLimiting("per-user");
 Sources:
 - [Rate limiting middleware in ASP.NET Core](https://learn.microsoft.com/aspnet/core/performance/rate-limit) — algorithms, partitioning, `DisableRateLimiting()`.
 - [ASP.NET Core built-in metrics](https://learn.microsoft.com/aspnet/core/log-mon/metrics/built-in) — `Microsoft.AspNetCore.RateLimiting` meter.
+- [System.Threading.RateLimiting reference](https://learn.microsoft.com/dotnet/api/system.threading.ratelimiting) — token-bucket / sliding-window / fixed-window primitives.
+- [OWASP API Security Top 10 — API4:2023 Unrestricted Resource Consumption](https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/) — partition on identity, not IP, for authenticated APIs.
+- [RFC 6585 §4 — `429 Too Many Requests`](https://datatracker.ietf.org/doc/html/rfc6585#section-4) and [RFC 7231 §7.1.3 — `Retry-After`](https://datatracker.ietf.org/doc/html/rfc7231#section-7.1.3) — wire-format expectations.
+- OTel meter wiring referenced from §6 and owned by [Chapter 05 — performance](./05-performance.md).
 
 ---
 
@@ -458,12 +490,16 @@ Don't:
 Sources:
 - [Output caching middleware in ASP.NET Core](https://learn.microsoft.com/aspnet/core/performance/caching/output) — policies, tag invalidation, default-policy short-circuit on auth.
 - [Output caching — `IOutputCacheStore` extensibility](https://learn.microsoft.com/aspnet/core/performance/caching/output#ioutputcachestore) — required surface for a custom (e.g. Redis) store.
+- [RFC 9111 — HTTP Caching](https://datatracker.ietf.org/doc/html/rfc9111) — `Cache-Control`/`Vary`/`Age` semantics that output caching deliberately bypasses.
+- [`Aspire.StackExchange.Redis.OutputCaching` package](https://www.nuget.org/packages/Aspire.StackExchange.Redis.OutputCaching) — first-party distributed `IOutputCacheStore`.
 
 ---
 
 ## 10. Authn/Authz
 
-JWT Bearer + policy-based authorization. See [`validation.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/validation.md) for Entra-specific token validation and [`best-practices.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/best-practices.md) for credential hygiene. The rules below are the **minimum inline checks** every API should encode in policy — don't rely on a downstream document to remember them.
+JWT Bearer + policy-based authorization.
+**Canonical reference for everything in this section:** [**EntraAuthPatterns sample**](https://github.com/mghabin/entra-auth-patterns-dotnet) — runnable `Program.cs`, the per-claim validation in [`docs/validation.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/validation.md), and credential-hygiene rules in [`docs/best-practices.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/best-practices.md).
+The rules below are the **minimum inline checks** every API must encode in policy — don't rely on a downstream document to remember them.
 
 ### 10.1 Token validation invariants
 
@@ -563,14 +599,22 @@ Don't:
 - Disable `ValidateIssuer`, `ValidateAudience`, or `ValidateLifetime`. Ever.
 
 Sources:
+- **Canonical sample:** [`mghabin/entra-auth-patterns-dotnet`](https://github.com/mghabin/entra-auth-patterns-dotnet) — runnable Entra JWT validation, policy split, CAE wiring; this section's rules are derived from it.
+- [RFC 6749 — OAuth 2.0 Authorization Framework](https://datatracker.ietf.org/doc/html/rfc6749) — grant types, `scope` parameter semantics that map to the `scp` claim.
+- [RFC 6750 — Bearer Token Usage](https://datatracker.ietf.org/doc/html/rfc6750) — `Authorization: Bearer`, `WWW-Authenticate` challenge format, error codes.
+- [RFC 8252 — OAuth 2.0 for Native Apps](https://datatracker.ietf.org/doc/html/rfc8252) — public-client constraints; PKCE is mandatory, no embedded user-agents.
+- [RFC 9068 — JWT profile for OAuth 2.0 access tokens](https://datatracker.ietf.org/doc/html/rfc9068) — required claims (`iss`, `aud`, `exp`, `sub`, `client_id`, `scope`) and the `at+jwt` typ header.
+- [RFC 9449 — DPoP (sender-constrained tokens)](https://datatracker.ietf.org/doc/html/rfc9449) — for when bearer-as-string is no longer enough (e.g. open-banking-class APIs).
+- [OWASP API Security Top 10 — API2:2023 Broken Authentication](https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/) — the threat model behind the policy split below.
+- [OWASP API Security Top 10 — API5:2023 Broken Function Level Authorization](https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/) — why deny-by-default `FallbackPolicy` is non-negotiable.
+- [OWASP ASVS v4 — V3 Session / V4 Access Control](https://owasp.org/www-project-application-security-verification-standard/) — verification checklist that maps cleanly onto policy/requirement code.
 - [Access token claims reference (Microsoft Entra)](https://learn.microsoft.com/entra/identity-platform/access-token-claims-reference) — exact semantics of `scp`, `roles`, `azp`, `appid`, `tid`, `ver`.
 - [Microsoft identity platform — access tokens](https://learn.microsoft.com/entra/identity-platform/access-tokens) — overview and v1↔v2 differences.
 - [Microsoft.Identity.Web — protected web API](https://learn.microsoft.com/entra/msal/dotnet/microsoft-identity-web/web-apis).
 - [Authorization in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/authorization/introduction) — policies, requirements, handlers, fallback policy.
-- [RFC 6750 — Bearer Token Usage](https://datatracker.ietf.org/doc/html/rfc6750).
 - [Continuous Access Evaluation (CAE)](https://learn.microsoft.com/entra/identity/conditional-access/concept-continuous-access-evaluation) and [claims challenges](https://learn.microsoft.com/entra/identity-platform/claims-challenge).
 - [Continuous Access Evaluation in Microsoft.Identity.Web](https://learn.microsoft.com/entra/msal/dotnet/microsoft-identity-web/continuous-access-evaluation) — outbound `tokenAcquisitionOptions.Claims` retry path.
-- Companion: [`validation.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/validation.md), [`best-practices.md`](https://github.com/mghabin/entra-auth-patterns-dotnet/blob/main/docs/best-practices.md).
+- Blazor auth-state serialization and render-mode-specific token flow owned by [Chapter 07 — client](./07-client.md).
 
 ---
 
@@ -609,6 +653,9 @@ Sources:
 - [`IHttpClientFactory` guidelines](https://learn.microsoft.com/dotnet/core/extensions/httpclient-factory) and [`SocketsHttpHandler.PooledConnectionLifetime`](https://learn.microsoft.com/dotnet/api/system.net.http.socketshttphandler.pooledconnectionlifetime).
 - [Continuous Access Evaluation in Microsoft.Identity.Web](https://learn.microsoft.com/entra/msal/dotnet/microsoft-identity-web/continuous-access-evaluation) — outbound CAE retry path.
 - [Claims challenges, claims requests, and client capabilities](https://learn.microsoft.com/entra/identity-platform/claims-challenge).
+- [RFC 6749 §6 — refreshing an access token](https://datatracker.ietf.org/doc/html/rfc6749#section-6) and [RFC 6750 §3](https://datatracker.ietf.org/doc/html/rfc6750#section-3) — bearer/refresh wire format the CAE retry obeys.
+- [`davidfowl/AspNetCoreDiagnosticScenarios`](https://github.com/davidfowl/AspNetCoreDiagnosticScenarios) — `HttpClient` lifetime/socket-exhaustion failure modes documented end-to-end.
+- OTLP exporter wiring for outbound HTTP spans owned by [Chapter 06 — cloud-native](./06-cloud-native.md).
 
 ---
 
@@ -645,6 +692,13 @@ Don't:
 - Swallow `OperationCanceledException` during shutdown — let the loop exit.
 - Do long CPU-bound work without yielding; you'll block the graceful shutdown signal.
 
+Sources:
+- [`BackgroundService` & `IHostedService`](https://learn.microsoft.com/aspnet/core/fundamentals/host/hosted-services) and [Graceful shutdown](https://learn.microsoft.com/aspnet/core/fundamentals/host/generic-host#host-shutdown).
+- [Azure Service Bus — sessions, dead-lettering, scheduled messages](https://learn.microsoft.com/azure/service-bus-messaging/message-sessions).
+- [RabbitMQ — quorum queues](https://www.rabbitmq.com/quorum-queues.html) and [publisher confirms](https://www.rabbitmq.com/confirms.html).
+- [Apache Kafka — consumer semantics](https://kafka.apache.org/documentation/#semantics) — at-least-once/exactly-once trade-offs that drive idempotency design.
+- Hosted-service unit and integration testing patterns owned by [Chapter 04 — testing](./04-testing.md).
+
 ---
 
 ## 13. Configuration
@@ -670,6 +724,13 @@ Do:
 Don't:
 - Put secrets in environment variables in production. They leak via `/proc/*/environ`, dumps, and diagnostic endpoints.
 - Read `IConfiguration` directly deep in the code. Bind to a typed options class.
+
+Sources:
+- [Configuration providers in .NET](https://learn.microsoft.com/dotnet/core/extensions/configuration-providers) — provider order, binding rules.
+- [Azure Key Vault configuration provider](https://learn.microsoft.com/aspnet/core/security/key-vault-configuration).
+- [Azure App Configuration — Key Vault references](https://learn.microsoft.com/azure/azure-app-configuration/use-key-vault-references-dotnet-core) — rotation without redeploy.
+- Options pattern, `IOptionsSnapshot<T>`/`IOptionsMonitor<T>`, `ValidateOnStart` owned by [Chapter 01 — foundations](./01-foundations.md).
+- Workload Identity / Managed Identity wiring owned by [Chapter 06 — cloud-native](./06-cloud-native.md).
 
 ---
 
@@ -714,6 +775,13 @@ Sources:
 - [CORS in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/cors).
 - [Data Protection — key storage providers](https://learn.microsoft.com/aspnet/core/security/data-protection/implementation/key-storage-providers).
 - [BFF pattern guidance — Duende / IdentityServer](https://docs.duendesoftware.com/identityserver/v7/bff/) (concept reference; pattern, not endorsement).
+- [RFC 6797 — HTTP Strict Transport Security](https://datatracker.ietf.org/doc/html/rfc6797) — `max-age`, `includeSubDomains`, preload semantics.
+- [RFC 7239 — Forwarded HTTP Extension](https://datatracker.ietf.org/doc/html/rfc7239) — the standardized successor to `X-Forwarded-*`.
+- [OWASP API Security Top 10 — API8:2023 Security Misconfiguration](https://owasp.org/API-Security/editions/2023/en/0xa8-security-misconfiguration/) — TLS, headers, CORS, error verbosity.
+- [OWASP Secure Headers Project](https://owasp.org/www-project-secure-headers/) — current recommended values for CSP/Permissions-Policy/Referrer-Policy.
+- [OWASP CSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html) — drives the matrix above.
+- [OWASP Cross-Origin Resource Sharing Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html#cross-origin-resource-sharing) — `AllowAnyOrigin` + credentials is a known anti-pattern.
+- Workload Identity / Managed Identity, key rotation, secret-store wiring owned by [Chapter 06 — cloud-native](./06-cloud-native.md).
 
 ---
 
@@ -730,7 +798,8 @@ Uploads / streaming:
 
 Kestrel limits — review every one for your threat model:
 - `MaxConcurrentConnections`, `MaxConcurrentUpgradedConnections`, `MaxRequestBodySize`, `MaxRequestHeadersTotalSize`, `MinRequestBodyDataRate`, `MinResponseDataRate`, `KeepAliveTimeout`, `RequestHeadersTimeout`.
-- Defaults are reasonable for internet-facing, but behind an ingress controller you often want to *lower* `MaxRequestBodySize` and *raise* `KeepAliveTimeout`.
+- **Default for internet-facing pods behind an ingress controller:** lower `MaxRequestBodySize` to the largest legitimate payload (1–10 MiB for JSON APIs, explicit per-endpoint override for upload routes) and raise `KeepAliveTimeout` to 2 minutes to amortize TLS handshake cost over warm connections from the ingress.
+- **Fallback:** keep framework defaults (30 MiB body, 130 s keep-alive) only for internal-only services that the ingress already protects with its own limits.
 
 Forwarded headers (behind YARP/App Gateway/nginx/Envoy):
 
@@ -746,25 +815,42 @@ app.UseForwardedHeaders();   // FIRST middleware
 
 Without `KnownNetworks`/`KnownProxies`, ASP.NET Core ignores forwarded headers from non-loopback by design. Many `RemoteIp = 127.0.0.1` bugs trace to this.
 
+Sources:
+- [CORS in ASP.NET Core](https://learn.microsoft.com/aspnet/core/security/cors) — preflight ordering and exposed headers.
+- [Kestrel limits](https://learn.microsoft.com/aspnet/core/fundamentals/servers/kestrel/options) — every knob explained.
+- [Forwarded Headers Middleware](https://learn.microsoft.com/aspnet/core/host-and-deploy/proxy-load-balancer) — `KnownNetworks`/`KnownProxies` requirement.
+- [RFC 7239 — Forwarded HTTP Extension](https://datatracker.ietf.org/doc/html/rfc7239) — standardized successor to `X-Forwarded-*`.
+- [OWASP API Security Top 10 — API4:2023 Unrestricted Resource Consumption](https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/) — body-size and rate caps belong on the ingress *and* on Kestrel.
+- [`Microsoft.AspNetCore.HttpOverrides` source](https://github.com/dotnet/aspnetcore/tree/main/src/Middleware/HttpOverrides/src) — exact ordering rules used by the middleware.
+
 ---
 
 ## 16. gRPC
 
-Choose gRPC when:
+**Default: REST + JSON over HTTP/2.** Choose gRPC only for the cases below; REST is the fallback because it composes with browsers, CDNs, and existing telemetry without extra plumbing.
+
+Choose gRPC when **all** of the following hold:
 - Internal service-to-service, you control both ends, and you want typed contracts + HTTP/2 multiplexing.
 - Streaming (client/server/bidi) maps naturally to your domain.
 - Polyglot clients benefit from generated code.
 
-Stick with REST when:
+Stay on REST when any of the following hold:
 - Public API, browsers are first-class clients, or CDN/caching matters.
-- Your clients are .NET-only and `Refit` + JSON is fine — don't introduce gRPC just for typing.
+- Your clients are .NET-only and `Refit` + JSON covers the typing need.
 
 Rules:
-- **Proto-first**. Code-first (`protobuf-net.Grpc`) is tempting in .NET-only orgs, but proto files are the durable contract — language-agnostic, diff-able, versioned.
+- **Proto-first.** Code-first (`protobuf-net.Grpc`) is tempting in .NET-only orgs, but proto files are the durable contract — language-agnostic, diff-able, versioned.
 - Always set **deadlines** on the client (`CallOptions.Deadline`). No deadline = server leak under load.
 - Flow the server `CancellationToken` into every downstream call.
-- For browsers, use **gRPC-Web** (`UseGrpcWeb`) or gRPC-JSON transcoding. Native gRPC isn't reachable from browsers.
+- For browsers, use **gRPC-Web** (`UseGrpcWeb`) as the default; fall back to gRPC-JSON transcoding only when you must serve OpenAPI from the same proto. Native gRPC isn't reachable from browsers.
 - `ConfigureKestrel` to accept HTTP/2 (`ListenAnyIP(..., o => o.Protocols = HttpProtocols.Http2)`) and allow plaintext only in dev.
+
+Sources:
+- [gRPC on .NET](https://learn.microsoft.com/aspnet/core/grpc/) and [gRPC-Web](https://learn.microsoft.com/aspnet/core/grpc/browser).
+- [gRPC official docs (community/CNCF)](https://grpc.io/docs/) — protocol semantics, deadlines, status codes.
+- [Protocol Buffers — language guide (proto3)](https://protobuf.dev/programming-guides/proto3/) — versioning rules (`reserved`, field numbers).
+- [grpc-ecosystem/awesome-grpc](https://github.com/grpc-ecosystem/awesome-grpc) — interceptors, gateways, observability adapters.
+- [OpenTelemetry Semantic Conventions for RPC](https://opentelemetry.io/docs/specs/semconv/rpc/) — span/attribute names emitted by the gRPC instrumentation.
 
 ---
 
@@ -772,13 +858,20 @@ Rules:
 
 For real-time. Rules differ from stateless APIs because connections are **long-lived and sticky**:
 
-- **Scale-out needs a backplane.** Options: **Azure SignalR Service** (recommended — offloads connection management, sharded, auto-scaled) or **Redis backplane** (`Microsoft.AspNetCore.SignalR.StackExchangeRedis`).
+- **Default backplane: Azure SignalR Service** (offloads connection management, sharded, auto-scaled, removes the sticky-session requirement).
+- **Self-hosted fallback: Redis backplane** (`Microsoft.AspNetCore.SignalR.StackExchangeRedis`) — pick this only when Azure SignalR is unavailable (sovereign cloud, on-prem, regulatory).
 - Without a backplane, a message sent from pod A cannot reach a client connected to pod B. Bugs in this category are hard to reproduce in dev.
 - With self-hosted SignalR (no Azure SignalR), **sticky sessions are mandatory** for WebSocket negotiation fallback to long-polling. In K8s that means session affinity on the Service/Ingress.
-- Azure SignalR removes the sticky requirement — clients connect to it, not to your pods.
 - Authenticate Hubs via `[Authorize]`; pass the JWT via `accessTokenFactory` on the client. Don't invent a second auth channel.
 - Backpressure: set `MaximumReceiveMessageSize`, `StreamBufferCapacity`, and handle `HubException` on the client. One rogue client should not OOM the server.
 - Log with `ActivitySource` — SignalR invocations are first-class spans.
+
+Sources:
+- [SignalR scale-out](https://learn.microsoft.com/aspnet/core/signalr/scale) and [Azure SignalR Service](https://learn.microsoft.com/azure/azure-signalr/signalr-overview) — backplane choices.
+- [SignalR — security considerations](https://learn.microsoft.com/aspnet/core/signalr/security) — auth, CORS, message-size limits.
+- [RFC 6455 — The WebSocket Protocol](https://datatracker.ietf.org/doc/html/rfc6455) — handshake/upgrade contract that drives sticky-session and ingress config.
+- [OWASP API Security Top 10 — API4:2023 Unrestricted Resource Consumption](https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/) — `MaximumReceiveMessageSize` and per-connection caps are the primary backpressure defense.
+- Blazor Server hub lifetimes and circuit auth-state owned by [Chapter 07 — client](./07-client.md).
 
 ---
 
@@ -858,3 +951,23 @@ Sources:
 - [Maarten Balliauw](https://blog.maartenballiauw.be/) — NuGet/Kestrel/ASP.NET internals.
 - [Scalar — scalar.com](https://scalar.com/) — OpenAPI UI alternative to Swagger UI, first-class ASP.NET Core integration.
 - [Polly docs — pollydocs.org](https://www.pollydocs.org/) — v8 strategy semantics beyond what `AddStandardResilienceHandler` exposes.
+- [`mghabin/entra-auth-patterns-dotnet`](https://github.com/mghabin/entra-auth-patterns-dotnet) — canonical sample for §10 (JWT validation, policy split, CAE).
+
+### Standards & specifications (IETF / W3C)
+
+- [RFC 6749 — OAuth 2.0](https://datatracker.ietf.org/doc/html/rfc6749), [RFC 6750 — Bearer Token Usage](https://datatracker.ietf.org/doc/html/rfc6750), [RFC 8252 — OAuth 2.0 for Native Apps](https://datatracker.ietf.org/doc/html/rfc8252), [RFC 9068 — JWT access-token profile](https://datatracker.ietf.org/doc/html/rfc9068), [RFC 9449 — DPoP](https://datatracker.ietf.org/doc/html/rfc9449).
+- [RFC 9457 — Problem Details for HTTP APIs](https://datatracker.ietf.org/doc/html/rfc9457) (obsoletes [RFC 7807](https://datatracker.ietf.org/doc/html/rfc7807)).
+- [RFC 6797 — HSTS](https://datatracker.ietf.org/doc/html/rfc6797), [RFC 7239 — Forwarded HTTP Extension](https://datatracker.ietf.org/doc/html/rfc7239), [RFC 8594 — Sunset header](https://datatracker.ietf.org/doc/html/rfc8594), [RFC 9111 — HTTP Caching](https://datatracker.ietf.org/doc/html/rfc9111), [RFC 6455 — WebSocket Protocol](https://datatracker.ietf.org/doc/html/rfc6455).
+- [W3C Trace Context](https://www.w3.org/TR/trace-context/) — propagation contract used by OTel HTTP instrumentation.
+
+### Security baselines (OWASP)
+
+- [OWASP API Security Top 10 (2023)](https://owasp.org/API-Security/editions/2023/en/0x00-header/) — primary threat model for §3, §7, §8, §10, §14, §17.
+- [OWASP ASVS v4](https://owasp.org/www-project-application-security-verification-standard/) — verification checklist that maps onto policy/requirement code.
+- [OWASP Secure Headers Project](https://owasp.org/www-project-secure-headers/) — current recommended values for §14 headers.
+- [OWASP CSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html) — drives the §14 CSRF matrix.
+
+### Observability (OpenTelemetry)
+
+- [OpenTelemetry .NET — getting started](https://opentelemetry.io/docs/languages/net/getting-started/) and [`opentelemetry-dotnet` GitHub](https://github.com/open-telemetry/opentelemetry-dotnet).
+- [OpenTelemetry Semantic Conventions — HTTP](https://opentelemetry.io/docs/specs/semconv/http/http-spans/) and [RPC](https://opentelemetry.io/docs/specs/semconv/rpc/) — span/attribute names emitted by ASP.NET Core, `HttpClient`, and gRPC instrumentations.
