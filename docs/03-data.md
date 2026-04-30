@@ -47,7 +47,8 @@ var users = await db.Users
 ```
 
 - **`AsNoTracking()`** on every query whose result you won't `SaveChanges` on. Non-negotiable.
-- **`AsNoTrackingWithIdentityResolution()`** when the result graph contains the same entity multiple times via `Include` and you need reference equality — rare; usually project instead.
+- **`AsNoTrackingWithIdentityResolution()`** when the result graph contains the same entity multiple times via `Include` and you need reference equality — rare.
+Project to a DTO instead; fall back to identity resolution only when the projection is genuinely impossible.
 - Set `QueryTrackingBehavior.NoTrackingWithIdentityResolution` at the context level only if 90%+ of queries are reads. Opt *into* tracking for writes.
 
 ### Projection beats Include
@@ -239,7 +240,11 @@ Sources:
 - EF Core 10 — JSON type support: https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew#json-type-support
 - EF Core 10 — vector search support: https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew#vector-search-support
 - Andrew Lock — running EF migrations on startup safely: https://andrewlock.net/
+- Jon P Smith — handling EF Core migrations in production: https://www.thereformedprogrammer.net/handling-entity-framework-core-database-migrations-in-production-part-1/
+- Shay Rojansky — Npgsql migrations and PG-specific schema gotchas: https://www.roji.org/
+- EF Core issue #19587 — migration locking / multi-instance race: https://github.com/dotnet/efcore/issues/19587
 - Postgres `CREATE INDEX CONCURRENTLY`: https://www.postgresql.org/docs/current/sql-createindex.html
+- Cross-link (init-container / job invocation of migration bundles): [`06-cloud-native.md`](./06-cloud-native.md)
 
 ---
 
@@ -315,7 +320,10 @@ Sources:
 - EF transactions: https://learn.microsoft.com/ef/core/saving/transactions
 - David Fowler on `TransactionScope` + async pitfalls: https://gist.github.com/davidfowl
 - Jimmy Bogard on the outbox pattern: https://www.jimmybogard.com/refactoring-towards-resilience-evaluating-coupling/
-- Cross-link: [06-cloud-native.md](./06-cloud-native.md)
+- Andrew Lock — reliable messaging with the outbox pattern: https://andrewlock.net/
+- EF Core issue #29428 — first-class outbox support discussion: https://github.com/dotnet/efcore/issues/29428
+- Cross-link (owner of dispatcher topology and broker integrations): [`06-cloud-native.md`](./06-cloud-native.md)
+- Cross-link (idempotency keys returned as `ProblemDetails` on conflict): [`02-aspnetcore.md`](./02-aspnetcore.md)
 
 ---
 
@@ -377,8 +385,10 @@ Sources:
 - Aspire SQL Server EF client integration: https://aspire.dev/integrations/databases/efcore/sql-server/sql-server-client/
 - Aspire PostgreSQL EF client integration: https://aspire.dev/integrations/databases/efcore/postgres/postgresql-client/
 - Aspire Cosmos DB EF client integration: https://aspire.dev/integrations/cloud/azure/azure-cosmos-db/azure-cosmos-db-get-started/
-- Ben Adams — high-perf .NET: https://blog.marcgravell.com/ and https://twitter.com/ben_a_adams
-- Shay Rojansky — query plans, Npgsql perf: https://www.roji.org/
+- Ben Adams — allocation-aware .NET perf threads: https://twitter.com/ben_a_adams
+- Shay Rojansky — query plans, Npgsql perf, prepared statements: https://www.roji.org/
+- EF Core issue #26797 — query-plan caching and parameter sniffing: https://github.com/dotnet/efcore/issues/26797
+- Cross-link (allocation discipline, `Span<T>`/`Pipelines`, GC tuning, app-metric meter design): [`05-performance.md`](./05-performance.md)
 
 ---
 
@@ -437,6 +447,10 @@ Sources:
 - Cosmos partitioning guidance: https://learn.microsoft.com/azure/cosmos-db/partitioning-overview
 - Cosmos request units: https://learn.microsoft.com/azure/cosmos-db/request-units
 - EF team blog — Cosmos updates: https://devblogs.microsoft.com/dotnet/category/entity-framework/
+- Mark Brown / Cosmos DB devblog — partition-key design and RU optimization: https://devblogs.microsoft.com/cosmosdb/
+- Azure Cosmos DB Conf community talks (partitioning, change feed, bulk): https://aka.ms/cosmosdbconf
+- Cosmos .NET SDK GitHub (issues, samples, perf tips): https://github.com/Azure/azure-cosmos-dotnet-v3
+- EF Core issue #17246 — Cosmos provider tracking issue: https://github.com/dotnet/efcore/issues/17246
 
 ### SQLite
 - **Tests only**, and only when you're not using provider-specific SQL. Dialect differences (no `FOR UPDATE`, different `json_` functions, case sensitivity) will bite.
@@ -513,7 +527,9 @@ Sources:
 
 - **Reads**: project directly from `DbContext` in the endpoint/handler. `AsNoTracking` + `Select`. No command bus.
 - **Writes**: one class per command. Takes `DbContext` (or factory), validates, mutates, `SaveChangesAsync`, publishes events (via outbox).
-- **MediatR**: don't add it *just* for indirection. Costs: allocation per request, stack-trace noise, DI registration sprawl, licensing friction since v12. Use it only if you genuinely need pipeline behaviors (logging, validation, tx) applied uniformly — and even then, ASP.NET Core filters / endpoint filters often suffice.
+- **MediatR**: default to **no MediatR**.
+Use ASP.NET Core endpoint filters (see [`02-aspnetcore.md`](./02-aspnetcore.md)) for cross-cutting concerns (logging, validation, tx).
+Only add MediatR when you have measured, repeated pipeline-behavior duplication that filters genuinely cannot express, and you have accepted the v12+ commercial licence.
 
 Sources:
 - Jimmy Bogard on MediatR licensing: https://www.jimmybogard.com/automapper-and-mediatr-going-commercial/
@@ -546,6 +562,9 @@ Sources:
 - Testcontainers for .NET: https://dotnet.testcontainers.org/
 - Respawn: https://github.com/jbogard/Respawn
 - Jon P Smith — testing EF Core: https://www.thereformedprogrammer.net/
+- Andrew Lock — integration-test fixtures with Testcontainers + Respawn: https://andrewlock.net/
+- EF Core issue #18457 — InMemory provider semantics gap (canonical reference): https://github.com/dotnet/efcore/issues/18457
+- Cross-link (owner of `WebApplicationFactory`, Testcontainers fixtures, Respawn workflow, xUnit v3 + MTP): [`04-testing.md`](./04-testing.md)
 
 ---
 
@@ -585,6 +604,9 @@ Sources:
 - Distributed caching: https://learn.microsoft.com/aspnet/core/performance/caching/distributed
 - Andrew Lock on HybridCache: https://andrewlock.net/
 - Steve Gordon — HybridCache internals: https://www.stevejgordon.co.uk/
+- Ben Adams — allocation-aware caching patterns: https://twitter.com/ben_a_adams
+- EF Core issue #20246 — official position against a built-in second-level cache: https://github.com/dotnet/efcore/issues/20246
+- Cross-link (Data Protection key-ring storage in multi-replica deployments): [`06-cloud-native.md`](./06-cloud-native.md)
 
 ---
 
@@ -603,7 +625,11 @@ Sources:
 - Data Protection: https://learn.microsoft.com/aspnet/core/security/data-protection/
 - Always Encrypted (SQL Server): https://learn.microsoft.com/sql/relational-databases/security/encryption/always-encrypted-database-engine
 - Managed identity for Azure SQL: https://learn.microsoft.com/azure/azure-sql/database/authentication-aad-overview
+- Shay Rojansky — Npgsql + Azure AD / managed identity tokens: https://www.roji.org/
+- Andrew Lock — protecting connection strings with User Secrets / Key Vault: https://andrewlock.net/
 - Meziantou on Data Protection & column encryption: https://www.meziantou.net/
+- Cross-link (JWT bearer + Microsoft Entra on the request pipeline; AuthN/AuthZ owner): [`02-aspnetcore.md`](./02-aspnetcore.md)
+- Cross-link (Data Protection key-ring storage for multi-replica): [`06-cloud-native.md`](./06-cloud-native.md)
 
 ---
 
