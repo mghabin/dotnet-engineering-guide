@@ -67,10 +67,18 @@ Source: [`docs/02-aspnetcore.md`](./docs/02-aspnetcore.md).
 - `ProblemDetails` per RFC 9457 as the single error contract (`AddProblemDetails`, `IProblemDetailsService`, exception handler middleware).
 - API versioning policy (`Asp.Versioning.Http`, URL/segment vs header) and deprecation headers.
 - OpenAPI generation via `Microsoft.AspNetCore.OpenApi` (transformer pipeline, schema customization, replacing Swashbuckle).
-- AuthN/AuthZ on the request pipeline: JWT bearer with Microsoft Entra, validation of `iss`/`aud`/`scp`/`roles`/`azp`, policy-based authorization.
-- Antiforgery / CSRF handling for cookie-auth surfaces and Blazor server interactions on the API side.
-- OpenTelemetry HTTP wiring on the request pipeline (`AddAspNetCoreInstrumentation`, `AddHttpClientInstrumentation`, propagation).
-- Rate limiting middleware, request size limits, and Kestrel surface defaults relevant to APIs.
+- AuthN/AuthZ on the request pipeline (§10): JWT bearer with Microsoft Entra, validation of `iss`/`aud`/`scp`/`roles`/`azp`, **separate delegated (`scp`) and app-only (`roles` + `azp` allow-list) policies** (no single OR-claims policy), CAE / claims-challenge wiring.
+- Antiforgery / CSRF handling for cookie-auth surfaces and Blazor server interactions on the API side (§14 — Security).
+- OpenTelemetry HTTP wiring on the request pipeline (§6 — `AddAspNetCoreInstrumentation`, `AddHttpClientInstrumentation`, propagation).
+- **HTTP resilience for outbound calls** (§7): `IHttpClientFactory` + `AddStandardResilienceHandler` as the single owner of retry / timeout / circuit-breaker / hedging defaults. Chapter 06 references this section, does not re-decide.
+- **`HttpClient` factory and typed clients** (§11): `AddHttpClient<T>`, named vs typed, `SocketsHttpHandler` defaults, `PooledConnectionLifetime`.
+- **OutputCache** (§9): HTTP-response caching middleware (`AddOutputCache`, policies, tag invalidation). Chapter 03's caching matrix links here for the OutputCache row.
+- **Background work in the request host** (§12): `IHostedService` / `BackgroundService` patterns, `Channel<T>` pipelines, graceful drain of in-flight work — composition lifetime owned here; the cluster-side drain contract is owned by [06 §11](#chapter-06--cloud-native).
+- **Security middleware** (§14): HTTPS redirection, HSTS, security headers, antiforgery, request-size limits, forwarded headers (paired with §15).
+- **gRPC surface** (§16): `MapGrpcService`, gRPC-Web, code-first vs proto-first, interceptors, deadlines.
+- **SignalR surface** (§17): hub authorization, backplane choice, scaling rules, sticky sessions.
+- **Health-check endpoint mapping** (§18): the in-process `MapHealthChecks` helpers and how the request host exposes them — but the **probe contract** (endpoint names, semantics, what a check may do) is owned by [06 §10](#chapter-06--cloud-native).
+- Rate limiting middleware (§8), request size limits, and Kestrel surface defaults relevant to APIs.
 
 ### References (does not re-decide)
 
@@ -188,13 +196,22 @@ Source: [`docs/06-cloud-native.md`](./docs/06-cloud-native.md).
 
 ### Owns
 
-- .NET Aspire 9.x AppHost composition and client integrations (`Aspire.Hosting.*`, `Aspire.*`).
-- `ServiceDefaults` shared project: OTel wiring, health checks, resilience handlers, service discovery defaults.
+- .NET Aspire AppHost composition and client integrations — **Aspire 9.x** for `net8.0` / `net9.0` services, **Aspire 13** for `net10.0` services (`Aspire.Hosting.*`, `Aspire.*`).
+- `ServiceDefaults` shared project (§1): OTel wiring, default health checks, resilience handlers, service discovery defaults.
+- **Configuration in cluster** (§4): ConfigMap + CSI Key Vault driver as the configuration substrate; `appsettings.Production.json` rejected. Foundations §6 owns the in-process options pattern; this chapter owns where the bytes come from in the cluster.
+- **Resilience pipeline defaults at the platform layer** (§6): Polly v8 standard-pipeline composition for non-HTTP resources (queues, blobs, repositories) and the rationale for keeping HTTP resilience in [02 §7](#chapter-02--aspnetcore). HTTP retry verb policy is owned by ch02; this chapter does not re-decide it.
+- **Health-check probe contract** (§10): `/health/live`, `/health/ready`, `/health/startup` endpoint names, semantics, what each probe may do, and the K8s probe wiring — matches the Aspire `ServiceDefaults` mapping. Chapter 02 §18 only owns the in-process `MapHealthChecks` plumbing and links here for the contract.
 - Kubernetes runtime contract: liveness / readiness / startup probes, QoS class, the CPU-limits-considered-harmful stance, requests sizing.
-- Service discovery via `Microsoft.Extensions.ServiceDiscovery` and `HttpClient` integration.
-- OTLP exporters (traces, metrics, logs) and collector topology assumptions.
-- ASP.NET Core Data Protection key-ring storage (Azure Blob + Key Vault, or equivalent) for multi-replica deployments.
+- Service discovery via `Microsoft.Extensions.ServiceDiscovery` and `HttpClient` integration (§7).
+- **Networking** (§13): HTTP/2 + HTTP/3 enablement, forwarded headers in cluster, mTLS via service mesh, TLS termination boundary.
+- OTLP exporters (traces, metrics, logs) and collector topology assumptions (§5).
+- **Secrets & identity** (§8): Workload Identity + Federated Identity Credentials only — no client secrets, no pod-identity v1, no service-principal passwords on disk.
+- ASP.NET Core Data Protection key-ring storage (Azure Blob + Key Vault, or equivalent) for multi-replica deployments (§9).
+- **Graceful shutdown** (§11): `IHostApplicationLifetime`, `preStop` hook, drain order, K8s `terminationGracePeriodSeconds`. Chapter 02's background-work section composes against this contract.
 - Outbox **dispatcher** topology (hosted service / sidecar / worker pool) — the pattern itself is owned by [03](#chapter-03--data).
+- **CI/CD** (§12): reproducible image build, Sigstore/cosign signing, SBOM, scanning gate. Source-build hygiene is owned by [01 §11](#chapter-01--foundations); this chapter owns the cluster-deployment pipeline.
+- **Multi-tenancy at runtime** (§14): tenant-scoped DI, per-tenant configuration / connection-string resolution, isolation expectations at the cluster boundary.
+- **Cost & efficiency** (§15): right-sizing requests, scale-to-zero suitability, image size baseline, the cluster-level levers a service team owns.
 - Dockerfile baseline for .NET 10 images, including the runtime env-vars selected in [05](#chapter-05--performance).
 
 ### References (does not re-decide)
@@ -276,7 +293,7 @@ Source: [`checklist.md`](./checklist.md).
 
 ### References (does not re-decide)
 
-- Every checklist line links to the owning chapter for rationale; the rule itself lives in the chapter.
+- The card itself does not encode rationale; each line restates a rule whose canonical wording lives in the owning chapter listed in the checklist's footer chapter index.
 - `should` / `prefer` / `avoid` nuance lives in chapters, not on the card.
 
 ### Cross-links

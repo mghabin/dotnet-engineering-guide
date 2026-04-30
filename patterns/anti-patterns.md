@@ -17,10 +17,15 @@ Each entry: **smell** → **why it bites** → **fix**, with severity.
 **Smell.** A single project pulls in MVC, EF Core, gRPC, MassTransit, Polly,
 Serilog, AutoMapper, MediatR, FluentValidation, … . **Why.** The project is
 doing the job of three: hosting, application, and infrastructure. Build times
-explode and the test surface is unclear. **Fix.** Split into `*.Host`,
-`*.Application`, `*.Infrastructure` per the [Clean Architecture
-template](https://github.com/ardalis/CleanArchitecture); host is the only
-project that references infrastructure.
+explode and the test surface is unclear. **Fix.** Split at the **bounded-context
+seam** — that is the rule, not the specific layered shape. The endpoint shape
+is a team choice; vertical slice
+([Jimmy Bogard, *Vertical Slice Architecture*](https://www.jimmybogard.com/vertical-slice-architecture/)),
+clean / onion ([Ardalis Clean Architecture
+template](https://github.com/ardalis/CleanArchitecture)), and modular monolith
+([Kamil Grzybek, *Modular Monolith primer*](https://www.kamilgrzybek.com/blog/posts/modular-monolith-primer))
+are all valid landing places, as long as the host project is the only one that
+references infrastructure. See also `patterns/patterns.md` §"Architecture style".
 
 ## 🔴 Per-project `<TargetFramework>` drift
 **Smell.** Half the solution is `net8.0`, half `net10.0`. **Why.** You lose

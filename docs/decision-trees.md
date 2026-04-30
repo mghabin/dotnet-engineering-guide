@@ -33,7 +33,7 @@ flowchart TD
     E -->|No| G[Stay Minimal — ch02]
 ```
 
-References: `docs/02-aspnetcore.md`.
+References: [`docs/02-aspnetcore.md#1-minimal-apis-vs-controllers`](./02-aspnetcore.md#1-minimal-apis-vs-controllers).
 
 ---
 
@@ -59,7 +59,7 @@ flowchart TD
     F --> G
 ```
 
-References: `docs/03-data.md`.
+References: [`docs/03-data.md#1-choosing-the-tool`](./03-data.md#1-choosing-the-tool).
 
 ---
 
@@ -85,7 +85,7 @@ flowchart TD
     G -->|No| F
 ```
 
-References: `docs/03-data.md`.
+References: [`docs/03-data.md#1-choosing-the-tool`](./03-data.md#1-choosing-the-tool), [`docs/03-data.md#8-provider-notes`](./03-data.md#8-provider-notes).
 
 ---
 
@@ -112,7 +112,7 @@ flowchart TD
     G -->|No| E
 ```
 
-References: `docs/03-data.md`.
+References: [`docs/03-data.md#4-migrations`](./03-data.md#4-migrations).
 
 ---
 
@@ -139,7 +139,7 @@ flowchart TD
     D -->|Mixed, want first paint fast<br/>then offload| H[Interactive Auto<br/>only if both modes supported — ch07]
 ```
 
-References: `docs/07-client.md`.
+References: [`docs/07-client.md#part-1--blazor-unified-web-app-model`](./07-client.md#part-1--blazor-unified-web-app-model).
 
 ---
 
@@ -167,7 +167,7 @@ flowchart TD
     D -->|One platform dominates,<br/>platform-only APIs| I[Native SDK — ch07]
 ```
 
-References: `docs/07-client.md`.
+References: [`docs/07-client.md#part-2--maui-net-10`](./07-client.md#part-2--maui-net-10).
 
 ---
 
@@ -192,7 +192,7 @@ flowchart TD
     D -->|Multi-service composition,<br/>Aspire AppHost in scope| G[DistributedApplicationTestingBuilder — ch04]
 ```
 
-References: `docs/04-testing.md`.
+References: [`docs/04-testing.md#5-webapplicationfactory-for-aspnet-core`](./04-testing.md#5-webapplicationfactory-for-aspnet-core), [`docs/04-testing.md#6-testcontainers`](./04-testing.md#6-testcontainers).
 
 ---
 
@@ -219,7 +219,7 @@ flowchart TD
     D -->|Also switching runner| I[TUnit + its assertions — ch04]
 ```
 
-References: `docs/04-testing.md`.
+References: [`docs/04-testing.md#3-assertions`](./04-testing.md#3-assertions).
 
 ---
 
@@ -244,7 +244,7 @@ flowchart TD
     F -->|No| C
 ```
 
-References: `docs/05-performance.md`.
+References: [`docs/05-performance.md#8-jit--aot`](./05-performance.md#8-jit--aot).
 
 ---
 
@@ -267,7 +267,7 @@ flowchart TD
     B -->|Sidecar / small container<br/>< 1 vCPU, tight RAM| D
 ```
 
-References: `docs/05-performance.md`.
+References: [`docs/05-performance.md#9-gc`](./05-performance.md#9-gc).
 
 ---
 
@@ -290,32 +290,39 @@ flowchart TD
     D -->|No, multiple endpoints / policies| C
 ```
 
-References: `docs/01-foundations.md`.
+References: [`docs/01-foundations.md#5-di--lifetimes`](./01-foundations.md#5-di--lifetimes), [`docs/02-aspnetcore.md#11-httpclient`](./02-aspnetcore.md#11-httpclient).
 
 ---
 
-## 12. Auth policy shape: scp vs roles vs combined
+## 12. Auth policy shape: delegated (`scp`) vs app-only (`roles` + `azp`)
 
 - Trigger: protecting an endpoint that may be hit by delegated users,
   app-only callers, or both.
-- Cost of wrong call: a single "is authenticated" check that lets an
-  app-only token reach a user-only endpoint, or a `scp`-only policy that
-  silently rejects every daemon caller.
-- Default per `ch02`: separate policies for delegated (`scp`) and app-only
-  (`roles`); a combined policy only when both flows are intentional.
+- Cost of wrong call: a single OR-claims policy that lets an app-only token
+  reach a user-only endpoint (no `azp` allow-list, no `scp` check), or a
+  user token satisfy an app-only endpoint by carrying an unrelated `scp`.
+  Both are real privilege-escalation bugs in production APIs.
+- Default per `ch02` §10: **two separate named policies** — one delegated
+  (requires `scp` and a specific scope, rejects tokens that carry `roles`
+  but no `scp`), one app-only (requires `roles`, an `azp`/`appid` in an
+  allow-list, and the **absence** of `scp`). For endpoints that legitimately
+  accept both, list both policies on the endpoint
+  (`RequireAuthorization("OrdersReadDelegated", "OrdersReadApp")`); each
+  policy still enforces its own invariants. **Never** a single assertion
+  that ORs `scp` and `roles`.
 
 ```mermaid
 flowchart TD
     A[New protected endpoint] --> B{Caller identity model?}
-    B -->|Delegated user only| C[Policy requires scp claim — ch02]
-    B -->|App-only / daemon only| D[Policy requires roles claim — ch02]
-    B -->|Both flows in scope| E[Combined policy<br/>require scp OR roles — ch02]
-    C --> F[Reject tokens missing scp — ch02]
-    D --> G[Reject tokens missing roles — ch02]
-    E --> H[Document which paths<br/>each flow may reach — ch02]
+    B -->|Delegated user only| C[Policy requires scp + scope<br/>reject if roles present without scp — ch02 §10]
+    B -->|App-only / daemon only| D[Policy requires roles<br/>+ azp / appid allow-list<br/>+ no scp — ch02 §10]
+    B -->|Both flows in scope| E[Compose two named policies<br/>on the endpoint — never OR claims — ch02 §10]
+    C --> F[Reject tokens missing scp — ch02 §10]
+    D --> G[Reject tokens missing roles or azp — ch02 §10]
+    E --> H[Each policy enforces its own invariants;<br/>document which paths each flow may reach — ch02 §10]
 ```
 
-References: `docs/02-aspnetcore.md`.
+References: [`docs/02-aspnetcore.md#10-authnauthz`](./02-aspnetcore.md#10-authnauthz).
 
 ---
 
@@ -337,7 +344,7 @@ flowchart TD
     B -->|Plain distributed K/V<br/>session, idempotency keys| E[IDistributedCache — ch03]
 ```
 
-References: `docs/03-data.md`.
+References: [`docs/03-data.md#14-caching`](./03-data.md#14-caching), [`docs/02-aspnetcore.md#9-output-caching`](./02-aspnetcore.md#9-output-caching).
 
 ---
 
@@ -362,7 +369,7 @@ flowchart TD
     F -->|Yes| G[BestEffort — never in prod — ch06]
 ```
 
-References: `docs/06-cloud-native.md`.
+References: [`docs/06-cloud-native.md#3-kubernetes--aks--probes-limits-gc-shutdown`](./06-cloud-native.md#3-kubernetes--aks--probes-limits-gc-shutdown).
 
 ---
 
@@ -372,22 +379,87 @@ References: `docs/06-cloud-native.md`.
   you.
 - Cost of wrong call: hand-rolling a retry loop that retries non-idempotent
   POSTs, or reaching for hedging on a write path and amplifying load.
-- Default per `ch02` / `ch06`: `AddStandardResilienceHandler()` on every
-  typed `HttpClient`; a custom Polly v8 pipeline only when the standard
-  defaults do not fit; hedging strictly for idempotent fan-out reads.
+- Default per `ch02` §7 (single owner; ch06 references this section):
+  `AddStandardResilienceHandler()` on every typed `HttpClient`; a custom
+  Polly v8 pipeline only when the standard defaults do not fit; hedging
+  strictly for idempotent fan-out reads. The standard handler retries safe
+  verbs (GET, HEAD, OPTIONS, PUT, DELETE) by default and skips POST/PATCH —
+  retry POST only when the server exposes an idempotency-key contract.
 
 ```mermaid
 flowchart TD
-    A[Outbound HTTP dependency] --> B{Standard defaults fit?<br/>retry + timeout +<br/>circuit + bulkhead}
-    B -->|Yes| C[AddStandardResilienceHandler — ch02/ch06]
-    B -->|No, need custom budget /<br/>per-route policy / chaos| D[Custom Polly v8 pipeline — ch02/ch06]
+    A[Outbound HTTP dependency] --> B{Standard defaults fit?<br/>retry safe verbs + timeout +<br/>circuit + bulkhead}
+    B -->|Yes| C[AddStandardResilienceHandler — ch02 §7]
+    B -->|No, need custom budget /<br/>per-route policy / chaos| D[Custom Polly v8 pipeline — ch02 §7]
     B -->|Idempotent read with<br/>tail-latency SLO| E{Multiple replicas / regions<br/>safe to fan out?}
-    E -->|Yes| F[AddHedgingHandler — ch02/ch06]
+    E -->|Yes| F[AddStandardHedgingHandler — ch02 §7]
     E -->|No| C
-    D --> G[Document the deviation<br/>in the service README — ch02/ch06]
+    D --> G[Document the deviation<br/>in the service README — ch02 §7]
 ```
 
-References: `docs/02-aspnetcore.md`, `docs/06-cloud-native.md`.
+References: [`docs/02-aspnetcore.md#7-resilience`](./02-aspnetcore.md#7-resilience).
+
+---
+
+## 16. Aspire scope: AppHost resource vs in-service client integration
+
+- Trigger: adopting a new Aspire integration (Postgres, Redis, Service Bus,
+  Azure Storage, …) and choosing where the `PackageReference` lives.
+- Cost of wrong call: shipping `Aspire.Hosting.*` packages to production
+  service images (they are inner-loop-only and pull in container/orchestration
+  code that has no business in a deployed service), or wiring an
+  `Aspire.<Vendor>.<Tech>` client into the AppHost (so the dashboard and
+  resource model lose visibility into the dependency).
+- Default per `ch06` §1: `Aspire.Hosting.*` packages live **only** in the
+  AppHost project (`*.AppHost.csproj`) — they model resources for
+  `dotnet run` / `aspire run`. `Aspire.<Vendor>.<Tech>` client integrations
+  live in the **service** project that consumes the resource — they register
+  typed clients in DI, OTel instrumentation, and health checks.
+
+```mermaid
+flowchart TD
+    A[New Aspire integration] --> B{What does the package do?}
+    B -->|Models a resource:<br/>runs container locally,<br/>emits connection info| C[AppHost project only<br/>Aspire.Hosting.* — ch06 §1]
+    B -->|Registers a typed client<br/>in DI: OTel + health check| D[Service project<br/>Aspire.&lt;Vendor&gt;.&lt;Tech&gt; — ch06 §1]
+    C --> E[Service project also references<br/>matching client integration — ch06 §1]
+    D --> F{Solution has an AppHost?}
+    F -->|Yes| G[Add matching Aspire.Hosting.*<br/>resource in AppHost — ch06 §1]
+    F -->|No| H[Configure connection from<br/>cluster config / Key Vault — ch06 §4]
+```
+
+References: [`docs/06-cloud-native.md#1-net-aspire--what-it-is-what-it-isnt`](./06-cloud-native.md#1-net-aspire--what-it-is-what-it-isnt).
+
+---
+
+## 17. Cosmos DB partition key
+
+- Trigger: modeling a new container in Azure Cosmos DB (NoSQL API).
+- Cost of wrong call: a low-cardinality or write-skewed key creates hot
+  logical partitions, throttles RU/s, and forces cross-partition queries
+  on the dominant read path — every fix is a data migration, not a config
+  change.
+- Default per `ch03` §1 / §8: pick the property that is (a) **high
+  cardinality**, (b) **present on the dominant read path** so the query is
+  single-partition, and (c) **write-distributed** so no single tenant /
+  user / day pins one logical partition. If two read patterns conflict,
+  duplicate the document into a second container keyed for the other
+  pattern (CDC / change-feed) before you reach for cross-partition fan-out.
+
+```mermaid
+flowchart TD
+    A[New Cosmos container] --> B{Dominant read pattern<br/>known?}
+    B -->|No| C[Stop. Model the read pattern first — ch03 §1]
+    B -->|Yes| D{Candidate key on every<br/>dominant read query?}
+    D -->|No| E[Pick a different key,<br/>or duplicate via change feed — ch03 §8]
+    D -->|Yes| F{High cardinality<br/>+ write-distributed?}
+    F -->|No, hot tenant / day / user| G[Composite key:<br/>tenantId + hash(id) or<br/>tenantId + bucket — ch03 §8]
+    F -->|Yes| H[Use the candidate key<br/>as partition key — ch03 §8]
+    H --> I{Second read pattern<br/>also dominant?}
+    I -->|Yes| J[Second container,<br/>fed by change feed,<br/>keyed for that pattern — ch03 §8]
+    I -->|No| K[Done — ch03 §8]
+```
+
+References: [`docs/03-data.md#1-choosing-the-tool`](./03-data.md#1-choosing-the-tool), [`docs/03-data.md#8-provider-notes`](./03-data.md#8-provider-notes).
 
 ---
 

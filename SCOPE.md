@@ -13,12 +13,12 @@ If your situation falls outside this envelope, individual chapters may still be 
 Concrete reader profiles.
 If two or more apply, you are the target reader.
 
-- A senior or staff backend .NET engineer owning one or more long-lived services on .NET 10 / C# 13.
+- A senior or staff backend .NET engineer owning one or more long-lived services on .NET 10 / C# 14.
 - A solutions or application architect choosing the default project, hosting, and data shape for a new bounded context.
 - A tech lead inheriting a .NET estate and asked to "make it boring" before scaling the team.
 - A platform engineer standardising `Directory.Build.props`, Central Package Management, analyzers, and CI templates across many .NET repos ([learn.microsoft.com/nuget/consume-packages/central-package-management](https://learn.microsoft.com/nuget/consume-packages/central-package-management)).
 - An engineer wiring a new ASP.NET Core service to AKS, App Service, or Azure Container Apps and picking between Minimal APIs and Controllers ([learn.microsoft.com/aspnet/core/fundamentals/minimal-apis/overview](https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis/overview)).
-- An engineer adopting .NET Aspire 9.x for local orchestration, service discovery, and OTel defaults ([learn.microsoft.com/dotnet/aspire/whats-new/dotnet-aspire-9](https://learn.microsoft.com/dotnet/aspire/whats-new/dotnet-aspire-9)).
+- An engineer adopting .NET Aspire for local orchestration, service discovery, and OTel defaults — Aspire 9.x for `net8.0` / `net9.0` services and Aspire 13 for `net10.0` services ([learn.microsoft.com/dotnet/aspire/whats-new/dotnet-aspire-9](https://learn.microsoft.com/dotnet/aspire/whats-new/dotnet-aspire-9), [aspire.dev](https://aspire.dev)).
 - An SRE or perf-focused engineer using BenchmarkDotNet, dotnet-counters, and PerfView to investigate allocations, GC, or NativeAOT trade-offs ([devblogs.microsoft.com/dotnet/performance-improvements-in-net-9](https://devblogs.microsoft.com/dotnet/performance-improvements-in-net-9)).
 
 ---
@@ -30,7 +30,7 @@ Specifically:
 
 - **.NET 10 GA on the current LTS / STS cadence** ([learn.microsoft.com/dotnet/core/releases-and-support](https://learn.microsoft.com/dotnet/core/releases-and-support)).
   Older TFMs are mentioned only when guidance differs.
-- **C# 13 language defaults**, NRT enabled, `TreatWarningsAsErrors=true`, analyzers on by default ([learn.microsoft.com/dotnet/csharp/whats-new/csharp-13](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-13)).
+- **C# 14 language defaults** (the compiler default tied to `net10.0`), NRT enabled, `TreatWarningsAsErrors=true`, analyzers on by default ([learn.microsoft.com/dotnet/csharp/whats-new/csharp-14](https://learn.microsoft.com/dotnet/csharp/whats-new/csharp-14), [learn.microsoft.com/dotnet/csharp/language-reference/configure-language-version](https://learn.microsoft.com/dotnet/csharp/language-reference/configure-language-version)).
 - **Cloud as the deployment target.** AKS, Azure App Service, Azure Container Apps, and Azure Functions on the isolated worker model ([learn.microsoft.com/azure/azure-functions/dotnet-isolated-process-guide](https://learn.microsoft.com/azure/azure-functions/dotnet-isolated-process-guide)).
   On-prem IIS is not the default.
 - **Multi-team monorepos or bounded-context services**, not single-solution single-team codebases.
@@ -107,19 +107,22 @@ Each path is ordered; do not skip steps.
 
 ### 6.1 First 90 days on a new .NET 10 service
 
-- Start at [`patterns/anti-patterns.md`](./patterns/anti-patterns.md) for the decision trees implied by the rejected patterns.
+- Start at [`docs/decision-trees.md`](./docs/decision-trees.md) — the synthesis entrypoint that routes you to the chapter that owns each decision.
 - Then [`checklist.md`](./checklist.md) as the one-page review card.
+- Then [`patterns/anti-patterns.md`](./patterns/anti-patterns.md) for the rejected shapes you will see most often.
 - Then [`docs/01-foundations.md`](./docs/01-foundations.md) for solution layout, CPM, analyzers, async, and DI.
 
 ### 6.2 Architect choosing the shape of a new bounded context
 
-- Start at [`patterns/anti-patterns.md`](./patterns/anti-patterns.md) and [`patterns/patterns.md`](./patterns/patterns.md) for the rejected and preferred shapes.
+- Start at [`docs/decision-trees.md`](./docs/decision-trees.md) for Minimal vs Controllers, EF vs Dapper vs Cosmos, render mode, Aspire scope, Cosmos partition key.
+- Then [`patterns/anti-patterns.md`](./patterns/anti-patterns.md) and [`patterns/patterns.md`](./patterns/patterns.md) for the rejected and preferred shapes.
 - Then [`docs/02-aspnetcore.md`](./docs/02-aspnetcore.md) for Minimal vs Controllers, ProblemDetails, versioning, OpenAPI, resilience.
 - Then [`docs/06-cloud-native.md`](./docs/06-cloud-native.md) for Aspire, AKS probes, container hygiene.
 
 ### 6.3 SRE / performance engineer chasing latency or cost
 
-- Start at [`docs/05-performance.md`](./docs/05-performance.md) for BenchmarkDotNet methodology, allocation analysis, `Span<T>`, pooling, source generators, NativeAOT.
+- Start at [`docs/decision-trees.md`](./docs/decision-trees.md) for the NativeAOT, GC, resilience, QoS, and cache trees.
+- Then [`docs/05-performance.md`](./docs/05-performance.md) for BenchmarkDotNet methodology, allocation analysis, `Span<T>`, pooling, source generators, NativeAOT.
 - Then [`docs/06-cloud-native.md`](./docs/06-cloud-native.md) for OTel defaults, probes, limits, graceful shutdown.
 - Then [`checklist.md`](./checklist.md) for the perf-relevant review items.
 
@@ -130,7 +133,8 @@ Each path is ordered; do not skip steps.
 - **Targets the current GA stable .NET.**
   At time of writing, .NET 10 (STS / LTS per [learn.microsoft.com/dotnet/core/releases-and-support](https://learn.microsoft.com/dotnet/core/releases-and-support)).
   When .NET 11 ships, guidance moves with it; the previous LTS is called out inline only where defaults differ.
-- **Targets the current Aspire GA, currently 9.x** ([learn.microsoft.com/dotnet/aspire/whats-new/dotnet-aspire-9](https://learn.microsoft.com/dotnet/aspire/whats-new/dotnet-aspire-9)).
+- **Targets the current Aspire GA, split by TFM**: Aspire 9.x for `net8.0` / `net9.0`, Aspire 13 for `net10.0` ([learn.microsoft.com/dotnet/aspire/whats-new/dotnet-aspire-9](https://learn.microsoft.com/dotnet/aspire/whats-new/dotnet-aspire-9), [aspire.dev](https://aspire.dev)).
+  The version line jumped 9.x → 13.0 to align with the .NET 10 wave, alongside the rebrand from "**.NET Aspire**" to "**Aspire**".
 - **Pre-GA features are labeled.**
   Anything behind a preview feature flag, an `[Experimental]` attribute, or a `RequiresPreviewFeatures` gate is marked `preview` inline and is not a default.
 - **EF Core, ASP.NET Core, and runtime release notes are the source of truth** for breaking changes between minor versions ([learn.microsoft.com/ef/core/what-is-new](https://learn.microsoft.com/ef/core/what-is-new), [learn.microsoft.com/aspnet/core/release-notes](https://learn.microsoft.com/aspnet/core/release-notes)).
